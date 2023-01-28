@@ -389,7 +389,7 @@ Then LSP-Bridge will start by gdb, please send new issue with `*lsp-bridge*' buf
   '(
     ((c-mode c-ts-mode c++-mode c++-ts-mode objc-mode) . lsp-bridge-c-lsp-server)
     (cmake-mode . "cmake-language-server")
-    (java-mode . "jdtls")
+    ((java-mode java-ts-mode) . "jdtls")
     (python-mode . lsp-bridge-python-lsp-server)
     (ruby-mode . "solargraph")
     ((rust-mode rustic-mode rust-ts-mode) . "rust-analyzer")
@@ -431,6 +431,7 @@ Then LSP-Bridge will start by gdb, please send new issue with `*lsp-bridge*' buf
     c++-mode-hook
     cmake-mode-hook
     java-mode-hook
+    java-ts-mode-hook
     python-mode-hook
     ruby-mode-hook
     lua-mode-hook
@@ -508,6 +509,7 @@ you can customize `lsp-bridge-get-workspace-folder' to return workspace folder p
     (csharp-tree-sitter-mode    . csharp-tree-sitter-indent-offset) ; C#
     (d-mode                     . c-basic-offset)     ; D
     (java-mode                  . c-basic-offset)     ; Java
+    (java-ts-mode                  . c-basic-offset)     ; Java
     (jde-mode                   . c-basic-offset)     ; Java (JDE)
     (js-mode                    . js-indent-level)    ; JavaScript
     (js2-mode                   . js2-basic-offset)   ; JavaScript-IDE

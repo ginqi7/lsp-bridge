@@ -87,5 +87,8 @@ E.g. Use `-javaagent:/home/user/.emacs.d/plugin/lombok.jar` to add lombok suppor
 (add-hook 'java-mode-hook (lambda ()
                             (setq-local lsp-bridge-get-single-lang-server-by-project 'lsp-bridge-get-jdtls-server-by-project)))
 
+(add-hook 'java-ts-mode-hook (lambda ()
+                            (setq-local lsp-bridge-get-single-lang-server-by-project 'lsp-bridge-get-jdtls-server-by-project)))
+
 (provide 'lsp-bridge-jdtls)
 ;;; lsp-bridge-jdtls.el ends here
