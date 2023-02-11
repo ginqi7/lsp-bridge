@@ -358,7 +358,7 @@ Then LSP-Bridge will start by gdb, please send new issue with `*lsp-bridge*' buf
   "Default LSP server for Python language, you can choose `pyright', `jedi', `python-ms', `pylsp'."
   :type 'string)
 
-(defcustom lsp-bridge-python-ruff-lsp-server "pyright_ruff"
+(defcustom lsp-bridge-python-ruff-lsp-server "pyright-background-analysis_ruff"
   "Default LSP server for Python Ruff, you can choose `pyright_ruff', `jedi_ruff', `python-ms_ruff', `pylsp_ruff'."
   :type 'string)
 
@@ -388,9 +388,9 @@ Then LSP-Bridge will start by gdb, please send new issue with `*lsp-bridge*' buf
 (defcustom lsp-bridge-single-lang-server-mode-list
   '(
     ((c-mode c-ts-mode c++-mode c++-ts-mode objc-mode) . lsp-bridge-c-lsp-server)
-    (cmake-mode . "cmake-language-server")
+    ((cmake-mode cmake-ts-mode) . "cmake-language-server")
     ((java-mode java-ts-mode) . "jdtls")
-    (python-mode . lsp-bridge-python-lsp-server)
+    ((python-mode python-ts-mode) . lsp-bridge-python-lsp-server)
     (ruby-mode . "solargraph")
     ((rust-mode rustic-mode rust-ts-mode) . "rust-analyzer")
     (elixir-mode . "elixirLS")
@@ -400,15 +400,15 @@ Then LSP-Bridge will start by gdb, please send new issue with `*lsp-bridge*' buf
     (lua-mode . "sumneko")
     (dart-mode . "dart-analysis-server")
     (scala-mode . "metals")
-    ((js2-mode js-mode rjsx-mode) . "javascript")
+    ((js2-mode js-mode js-ts-mode rjsx-mode) . "javascript")
     (typescript-tsx-mode . "typescriptreact")
-    ((typescript-mode) . "typescript")
+    ((typescript-mode typescript-ts-mode) . "typescript")
     (tuareg-mode . "ocamllsp")
     (erlang-mode . "erlang-ls")
     ((latex-mode Tex-latex-mode texmode context-mode texinfo-mode bibtex-mode) . lsp-bridge-tex-lsp-server)
     ((clojure-mode clojurec-mode clojurescript-mode clojurex-mode) . "clojure-lsp")
-    ((sh-mode) . "bash-language-server")
-    ((css-mode) . "vscode-css-language-server")
+    ((sh-mode bash-mode bash-ts-mode) . "bash-language-server")
+    ((css-mode css-ts-mode) . "vscode-css-language-server")
     (elm-mode . "elm-language-server")
     (php-mode . lsp-bridge-php-lsp-server)
     ((yaml-mode yaml-ts-mode) . "yaml-language-server")
@@ -461,6 +461,7 @@ Then LSP-Bridge will start by gdb, please send new issue with `*lsp-bridge*' buf
     clojurescript-mode-hook
     clojurex-mode-hook
     sh-mode-hook
+    bash-mode-hook
     web-mode-hook
     css-mode-hook
     elm-mode-hook
@@ -484,6 +485,17 @@ Then LSP-Bridge will start by gdb, please send new issue with `*lsp-bridge*' buf
     telega-chat-mode-hook
     markdown-mode-hook
     kotlin-mode-hook
+
+    c-ts-mode-hook
+    c++-ts-mode-hook
+    cmake-ts-mode-hook
+    toml-ts-mode-hook
+    css-ts-mode-hook
+    js-ts-mode-hook
+    json-ts-mode-hook
+    python-ts-mode-hook
+    bash-ts-mode-hook
+    typescript-ts-mode-hook
     )
   "The default mode hook to enable lsp-bridge."
   :type 'list)
@@ -546,12 +558,17 @@ you can customize `lsp-bridge-get-workspace-folder' to return workspace folder p
 (defcustom lsp-bridge-string-interpolation-open-chars-alist
   '(;; For {}
     (python-mode . "[^\$]\{")
+    (python-ts-mode . "[^\$]\{")
     ;; For ${}
     (js-mode . "\$\{")
+    (js-ts-mode . "\$\{")
     (js2-mode . "\$\{")
     (js3-mode . "\$\{")
     (typescript-mode . "\$\{")
+    (typescript-ts-mode . "\$\{")
     (sh-mode . "\$\{")
+    (bash-mode . "\$\{")
+    (bash-ts-mode . "\$\{")
     ;; For #{}
     (ruby-mode . "\#\{")
     ;; For {{}}
@@ -1114,10 +1131,10 @@ So we build this macro to restore postion after code format."
       (when (and (lsp-bridge-epc-live-p lsp-bridge-epc-process)
                  ;; NOTE:
                  ;;
-                 ;; If we call (thing-at-point 'symbol t) in `after-change-functions'
-                 ;; some org commands conflict with `thing-at-point' that make org commands failed.
+                 ;; Most org-mode commands will make lsp-bridge failed that casue (thing-at-point 'symbol t).
                  ;; We only allow `org-self-insert-command' trigger lsp-bridge action.
-                 (not (and (string-prefix-p "org-" this-command-string)
+                 (not (and (or (string-prefix-p "org-" this-command-string)
+                               (string-prefix-p "+org/" this-command-string))
                            (not (string-equal this-command-string "org-self-insert-command")))))
         (let* ((current-word (thing-at-point 'word t))
                (current-symbol (thing-at-point 'symbol t)))
@@ -1858,11 +1875,11 @@ SymbolKind (defined in the LSP)."
                 'lsp-bridge-kill-mode-line))
 
   (when lsp-bridge-server
-    (propertize (format "lsp-bridge:%s" lsp-bridge-server-port) 'face mode-face)))
+    (propertize "lsp-bridge"'face mode-face)))
 
 (when lsp-bridge-enable-mode-line
   (add-to-list 'mode-line-misc-info
-               `(lsp-bridge-mode (" [" lsp-bridge--mode-line-format "] "))))
+               `(lsp-bridge-mode ("" lsp-bridge--mode-line-format " "))))
 
 (provide 'lsp-bridge)
 
