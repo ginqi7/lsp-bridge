@@ -244,6 +244,11 @@ Setting this to nil or 0 will turn off the indicator."
   :type 'string
   :group 'lsp-bridge)
 
+(defcustom lsp-bridge-symbols-enable-which-func nil
+  "Wether use lsp-bridge in which-func"
+  :type 'boolean
+  :group 'lsp-bridge)
+
 (defface lsp-bridge-font-lock-flash
   '((t (:inherit highlight)))
   "Face to flash the current line."
@@ -401,7 +406,7 @@ Then LSP-Bridge will start by gdb, please send new issue with `*lsp-bridge*' buf
     (dart-mode . "dart-analysis-server")
     (scala-mode . "metals")
     ((js2-mode js-mode js-ts-mode rjsx-mode) . "javascript")
-    (typescript-tsx-mode . "typescriptreact")
+    ((typescript-tsx-mode tsx-ts-mode) . "typescriptreact")
     ((typescript-mode typescript-ts-mode) . "typescript")
     (tuareg-mode . "ocamllsp")
     (erlang-mode . "erlang-ls")
@@ -422,6 +427,7 @@ Then LSP-Bridge will start by gdb, please send new issue with `*lsp-bridge*' buf
     (swift-mode . "swift-sourcekit")
     (csharp-mode . lsp-bridge-csharp-lsp-server)
     (kotlin-mode . "kotlin-language-server")
+    (vhdl-mode . "vhdl-tool")
     )
   "The lang server rule for file mode."
   :type 'cons)
@@ -485,6 +491,7 @@ Then LSP-Bridge will start by gdb, please send new issue with `*lsp-bridge*' buf
     telega-chat-mode-hook
     markdown-mode-hook
     kotlin-mode-hook
+    vhdl-mode-hook
 
     c-ts-mode-hook
     c++-ts-mode-hook
@@ -521,7 +528,7 @@ you can customize `lsp-bridge-get-workspace-folder' to return workspace folder p
     (csharp-tree-sitter-mode    . csharp-tree-sitter-indent-offset) ; C#
     (d-mode                     . c-basic-offset)     ; D
     (java-mode                  . c-basic-offset)     ; Java
-    (java-ts-mode                  . c-basic-offset)     ; Java
+    (java-ts-mode               . java-ts-mode-indent-offset) ; Java
     (jde-mode                   . c-basic-offset)     ; Java (JDE)
     (js-mode                    . js-indent-level)    ; JavaScript
     (js2-mode                   . js2-basic-offset)   ; JavaScript-IDE
@@ -539,12 +546,15 @@ you can customize `lsp-bridge-get-workspace-folder' to return workspace folder p
     (nxml-mode                  . nxml-child-indent)       ; XML
     (pascal-mode                . pascal-indent-level)     ; Pascal
     (typescript-mode            . typescript-indent-level) ; Typescript
+    (typescript-ts-mode         . typescript-ts-mode-indent-offset) ; Typescript
+    (tsx-ts-mode                . typescript-ts-mode-indent-offset) ; Typescript[TSX]
     (sh-mode                    . sh-basic-offset)   ; Shell Script
     (ruby-mode                  . ruby-indent-level) ; Ruby
     (enh-ruby-mode              . enh-ruby-indent-level) ; Ruby
     (crystal-mode               . crystal-indent-level) ; Crystal (Ruby)
     (css-mode                   . css-indent-offset)    ; CSS
     (rust-mode                  . rust-indent-offset)   ; Rust
+    (rust-ts-mode               . rust-ts-mode-indent-offset) ; Rust
     (rustic-mode                . rustic-indent-offset) ; Rust
     (scala-mode                 . scala-indent:step)    ; Scala
     (powershell-mode            . powershell-indent)    ; PowerShell
@@ -552,6 +562,7 @@ you can customize `lsp-bridge-get-workspace-folder' to return workspace folder p
     (yaml-mode                  . yaml-indent-offset)   ; YAML
     (hack-mode                  . hack-indent-offset)   ; Hack
     (kotlin-mode                . c-basic-offset)       ; Kotlin
+    (vhdl-mode                  . vhdl-basic-offset)     ; VHDL
     (default                    . standard-indent)) ; default fallback
   "A mapping from `major-mode' to its indent variable.")
 
@@ -893,7 +904,10 @@ So we build this macro to restore postion after code format."
 
         ;; Only send `change_cursor' request when user change cursor, except cause by mouse wheel.
         (unless (eq last-command 'mwheel-scroll)
-          (lsp-bridge-call-file-api "change_cursor" (lsp-bridge--position))))
+          (lsp-bridge-call-file-api "change_cursor" (lsp-bridge--position))
+          (if (and lsp-bridge-symbols-enable-which-func
+                   (featurep 'which-func) which-function-mode)
+              (lsp-bridge-call-file-api "document_symbol" (lsp-bridge--position)))))
 
       ;; Hide hover tooltip.
       (unless (string-prefix-p "lsp-bridge-popup-documentation-scroll" this-command-string)
@@ -1517,6 +1531,12 @@ So we build this macro to restore postion after code format."
     (setq auto-save-default nil)
     (setq create-lockfiles nil))
 
+  ;; Add `lsp-bridge-symbols--current-defun' to `whic-func-functions'.
+  (if (and lsp-bridge-symbols-enable-which-func
+           (featurep 'which-func) which-function-mode)
+      (setq-local which-func-functions
+                  (add-to-list 'which-func-functions #'lsp-bridge-symbols--current-defun)))
+
   (setq-local lsp-bridge-revert-buffer-flag nil)
 
   (acm-run-idle-func acm-backend-elisp-symbols-update-timer lsp-bridge-elisp-symbols-update-idle 'lsp-bridge-elisp-symbols-update)
@@ -1851,6 +1871,19 @@ SymbolKind (defined in the LSP)."
 (with-eval-after-load 'org
   (dolist (lang lsp-bridge-org-babel-lang-list)
     (eval `(lsp-org-babel-enable ,lang))))
+
+;;; support which-func-mode
+;;;
+
+(defvar-local lsp-bridge-symbols-current-defun nil)
+
+(defun lsp-bridge-symbols--record-current-defun (current-defun)
+  "Record `CURRENT-DEFUN' from lsp."
+  (setq-local lsp-bridge-symbols-current-defun current-defun))
+
+(defun lsp-bridge-symbols--current-defun ()
+  "Add `lsp-bridge-symbols-current-defun' to `which-func-functions'."
+  lsp-bridge-symbols-current-defun)
 
 ;;; Mode-line
 ;;;

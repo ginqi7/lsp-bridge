@@ -78,13 +78,15 @@ class FileAction:
          self.insert_spaces,
          self.enable_push_diagnostics,
          self.push_diagnostic_idle,
-         self.display_label_max_length) = get_emacs_vars([
+         self.display_label_max_length,
+         self.diagnostics_max_number) = get_emacs_vars([
              "acm-backend-lsp-enable-auto-import",
              "acm-backend-lsp-candidates-max-number",
              "indent-tabs-mode",
              "lsp-bridge-enable-diagnostics",
              "lsp-bridge-diagnostic-fetch-idle",
-             "acm-backend-lsp-candidate-max-length"
+             "acm-backend-lsp-candidate-max-length",
+             "lsp-bridge-diagnostic-max-number"
         ])
         self.insert_spaces = not self.insert_spaces
 
@@ -193,7 +195,7 @@ class FileAction:
         if len(self.diagnostics) == 0:
             message_emacs("No diagnostics found.")
         else:
-            eval_in_emacs("lsp-bridge-diagnostic--list", self.diagnostics)
+            eval_in_emacs("lsp-bridge-diagnostic--list", self.diagnostics[:self.diagnostics_max_number])
             
     def sort_diagnostic(self, diagnostic_a, diagnostic_b):
         score_a = [diagnostic_a["range"]["start"]["line"],
@@ -230,7 +232,7 @@ class FileAction:
         # Only push diagnostics to Emacs when ticker is newest.
         # Drop all temporarily diagnostics when typing.
         if ticker == self.diagnostics_ticker:
-            eval_in_emacs("lsp-bridge-diagnostic--render", self.filepath, self.diagnostics)
+            eval_in_emacs("lsp-bridge-diagnostic--render", self.filepath, self.diagnostics[:self.diagnostics_max_number])
             
     def save_file(self, buffer_name):
         for lsp_server in self.get_lsp_servers():
