@@ -93,6 +93,7 @@
 (require 'lsp-bridge-code-action)
 (require 'lsp-bridge-diagnostic)
 (require 'lsp-bridge-lsp-installer)
+(require 'lsp-bridge-org-babel)
 
 (defgroup lsp-bridge nil
   "LSP-Bridge group."
@@ -268,11 +269,6 @@ Setting this to nil or 0 will turn off the indicator."
 
 (defvar lsp-bridge-server-port nil)
 
-;; org babel cache
-(defvar-local lsp-bridge--org-babel-info-cache nil)
-(defvar-local lsp-bridge--org-babel-block-bop nil)
-(defvar-local lsp-bridge--org-babel-block-eop nil)
-
 (defun lsp-bridge--start-epc-server ()
   "Function to start the EPC server."
   (unless (process-live-p lsp-bridge-server)
@@ -388,9 +384,6 @@ Then LSP-Bridge will start by gdb, please send new issue with `*lsp-bridge*' buf
 
 (defcustom lsp-bridge-use-ds-pinyin-in-org-mode nil
   "Use `ds-pinyin' lsp server in org-mode, default is disable.")
-
-(defcustom lsp-bridge-enable-org-babel nil
-  "Use `lsp-bridge' in org-babel, default is disable.")
 
 (defcustom lsp-bridge-complete-manually nil
   "Only popup completion menu when user call `lsp-bridge-popup-complete-menu' command.")
@@ -631,12 +624,25 @@ So we build this macro to restore postion after code format."
      (back-to-indentation)
      (forward-char (max (- current-column indent-column) 0))))
 
-(defun lsp-bridge-get-match-buffer (dirname)
+(defun lsp-bridge-is-nova-file ()
+  (and (boundp 'nova-is-remote-file)
+       nova-is-remote-file))
+
+(defun lsp-bridge-get-buffer-truename (&optional filename)
+  (if (lsp-bridge-is-nova-file)
+      nova-remote-file-path
+    (file-truename (or filename buffer-file-name))))
+
+(defun lsp-bridge-get-match-buffer (name)
   (cl-dolist (buffer (buffer-list))
-    (when-let* ((file-name (buffer-file-name buffer))
-                (match-buffer (or (string-equal file-name dirname)
-                                  (string-equal (file-truename file-name) dirname))))
-      (cl-return buffer))))
+    (with-current-buffer buffer
+      (if (lsp-bridge-is-nova-file)
+          (when (string-equal nova-remote-file-path name)
+            (cl-return buffer))
+        (when-let* ((file-name (buffer-file-name buffer))
+                    (match-buffer (or (string-equal file-name name)
+                                      (string-equal (file-truename file-name) name))))
+          (cl-return buffer))))))
 
 (defun lsp-bridge--get-project-path-func (dirname)
   (when lsp-bridge-get-project-path-by-filepath
@@ -691,7 +697,7 @@ So we build this macro to restore postion after code format."
   (when-let* ((buf (get-buffer buffer-name)))
     (if (and lsp-bridge-enable-org-babel
              (eq major-mode 'org-mode))
-        (and lsp-bridge--org-babel-info-cache (org-element-property :value lsp-bridge--org-babel-info-cache))
+        (and lsp-bridge-org-babel--info-cache (org-element-property :value lsp-bridge-org-babel--info-cache))
       (with-current-buffer buf
         (buffer-substring-no-properties (point-min) (point-max))))))
 
@@ -749,45 +755,21 @@ So we build this macro to restore postion after code format."
              "ds-pinyin")
             (lsp-bridge-enable-org-babel
              ;; get lang server according to org babel
-             (let* ((lang (org-element-property :language lsp-bridge--org-babel-info-cache))
-                    (mode-name (concat (symbol-name (cdr (assoc lang org-src-lang-modes))) "-mode"))
-                    (major-mode (intern mode-name)))
-               (if (eq major-mode 'emacs-lisp-mode)
-                   (setq-local acm-is-elisp-mode-in-org t))
-               (lsp-bridge-get-single-lang-server-by-mode))))))))
-
-(defvar-local lsp-bridge--org-update-file-before-change nil)
-(defun lsp-bridge-check-org-babel-lsp-server ()
-  "Check if current point is in org babel block. "
-  (if (and lsp-bridge--org-babel-block-bop lsp-bridge--org-babel-block-eop lsp-bridge--org-babel-info-cache
-           (> (point) lsp-bridge--org-babel-block-bop) (< (point) lsp-bridge--org-babel-block-eop))
-      lsp-bridge--org-babel-info-cache
-    (setq-local lsp-bridge--org-babel-info-cache (org-element-context))
-    (unless (eq (org-element-type lsp-bridge--org-babel-info-cache) 'src-block)
-      (setq-local lsp-bridge--org-babel-info-cache nil))
-    (when lsp-bridge--org-babel-info-cache
-      (setq-local lsp-bridge--org-babel-block-bop (org-element-property :begin lsp-bridge--org-babel-info-cache))
-      (setq-local lsp-bridge--org-babel-block-eop (org-element-property :end lsp-bridge--org-babel-info-cache))
-      ;; sync it in `lsp-bridge-monitor-before-change'
-      (setq-local lsp-bridge--org-update-file-before-change t)))
-
-  (and lsp-bridge--org-babel-info-cache
-       ;; not send change-file for begin_src and end_src
-       (not (string-match-p "^[[:space:]]*#\\+"
-                            (buffer-substring-no-properties (point-at-bol) (point-at-eol))))
-       (lsp-bridge-get-single-lang-server-by-mode)))
+             (lsp-bridge-org-babel-get-single-lang-server)))))))
 
 (defun lsp-bridge-has-lsp-server-p ()
   (cond ((and lsp-bridge-enable-org-babel (eq major-mode 'org-mode))
          (setq-local acm-is-elisp-mode-in-org nil)
-         (lsp-bridge-check-org-babel-lsp-server))
+         (lsp-bridge-org-babel-check-lsp-server))
         (t
-         (when-let* ((dirname (ignore-errors (file-truename buffer-file-name))))
-           (let* ((multi-lang-server-by-extension (or (lsp-bridge-get-multi-lang-server-by-extension dirname)
-                                                      (lsp-bridge--with-file-buffer dirname
+         (when-let* ((filename (or (ignore-errors (file-truename buffer-file-name))
+                                   (when (lsp-bridge-is-nova-file)
+                                     nova-remote-file-path))))
+           (let* ((multi-lang-server-by-extension (or (lsp-bridge-get-multi-lang-server-by-extension filename)
+                                                      (lsp-bridge--with-file-buffer filename
                                                         (lsp-bridge-get-multi-lang-server-by-mode))))
-                  (lang-server-by-extension (or (lsp-bridge-get-single-lang-server-by-extension dirname)
-                                                (lsp-bridge--with-file-buffer dirname
+                  (lang-server-by-extension (or (lsp-bridge-get-single-lang-server-by-extension filename)
+                                                (lsp-bridge--with-file-buffer filename
                                                   (lsp-bridge-get-single-lang-server-by-mode)))))
              (if multi-lang-server-by-extension
                  multi-lang-server-by-extension
@@ -808,27 +790,29 @@ So we build this macro to restore postion after code format."
 
 (defun lsp-bridge-call-file-api (method &rest args)
   (when (lsp-bridge-call-file-api-p)
-    (if (and (boundp 'acm-backend-lsp-filepath)
-             (file-exists-p acm-backend-lsp-filepath))
-        (if lsp-bridge-buffer-file-deleted
-            ;; If buffer's file create again (such as switch branch back), we need save buffer first,
-            ;; send the LSP request after the file is changed next time.
-            (progn
-              (save-buffer)
-              (setq-local lsp-bridge-buffer-file-deleted nil)
-              (message "[LSP-Bridge] %s is back, will send the LSP request after the file is changed next time." acm-backend-lsp-filepath))
-          (when (and acm-backend-lsp-filepath
-                     (not (string-equal acm-backend-lsp-filepath "")))
-            (lsp-bridge-deferred-chain
-              (lsp-bridge-epc-call-deferred lsp-bridge-epc-process (read method) (append (list acm-backend-lsp-filepath) args)))))
-      ;; We need send `closeFile' request to lsp server if we found buffer's file is not exist,
-      ;; it is usually caused by switching branch or other tools to delete file.
-      ;;
-      ;; We won't send any lsp request until buffer's file create again.
-      (unless lsp-bridge-buffer-file-deleted
-        (lsp-bridge-close-buffer-file)
-        (setq-local lsp-bridge-buffer-file-deleted t)
-        (message "[LSP-Bridge] %s is not exist, stop send the LSP request until file create again." acm-backend-lsp-filepath)))))
+    (if (lsp-bridge-is-nova-file)
+        (nova-send-lsp-request method args)
+      (if (and (boundp 'acm-backend-lsp-filepath)
+               (file-exists-p acm-backend-lsp-filepath))
+          (if lsp-bridge-buffer-file-deleted
+              ;; If buffer's file create again (such as switch branch back), we need save buffer first,
+              ;; send the LSP request after the file is changed next time.
+              (progn
+                (save-buffer)
+                (setq-local lsp-bridge-buffer-file-deleted nil)
+                (message "[LSP-Bridge] %s is back, will send the %s LSP request after the file is changed next time." acm-backend-lsp-filepath method))
+            (when (and acm-backend-lsp-filepath
+                       (not (string-equal acm-backend-lsp-filepath "")))
+              (lsp-bridge-deferred-chain
+                (lsp-bridge-epc-call-deferred lsp-bridge-epc-process (read method) (append (list acm-backend-lsp-filepath) args)))))
+        ;; We need send `closeFile' request to lsp server if we found buffer's file is not exist,
+        ;; it is usually caused by switching branch or other tools to delete file.
+        ;;
+        ;; We won't send any lsp request until buffer's file create again.
+        (unless lsp-bridge-buffer-file-deleted
+          (lsp-bridge-close-buffer-file)
+          (setq-local lsp-bridge-buffer-file-deleted t)
+          (message "[LSP-Bridge] %s is not exist, stop send the %s LSP request until file create again." acm-backend-lsp-filepath method))))))
 
 (defvar lsp-bridge-is-starting nil)
 
@@ -1153,14 +1137,16 @@ So we build this macro to restore postion after code format."
   (when (lsp-bridge-has-lsp-server-p)
     ;; send whole org src block to lsp server
     (when (and lsp-bridge-enable-org-babel (eq major-mode 'org-mode)
-               lsp-bridge--org-babel-block-bop
-               lsp-bridge--org-update-file-before-change)
-      (setq-local lsp-bridge--org-update-file-before-change nil)
+               lsp-bridge-org-babel--block-bop
+               lsp-bridge-org-babel--update-file-before-change)
+      (setq-local lsp-bridge-org-babel--update-file-before-change nil)
       (lsp-bridge-call-file-api "update_file" (buffer-name)
-                                (line-number-at-pos lsp-bridge--org-babel-block-bop)))
+                                (1- (line-number-at-pos lsp-bridge-org-babel--block-bop))))
 
     (setq-local lsp-bridge--before-change-begin-pos (lsp-bridge--point-position begin))
-    (setq-local lsp-bridge--before-change-end-pos (lsp-bridge--point-position end))))
+    (setq-local lsp-bridge--before-change-end-pos (lsp-bridge--point-position end))
+
+    ))
 
 (defun lsp-bridge-monitor-post-self-insert ()
   ;; Make sure this function be called after `electric-pair-mode'
@@ -1193,12 +1179,8 @@ So we build this macro to restore postion after code format."
       ;; Record last change position to avoid popup outdate completions.
       (setq lsp-bridge-last-change-position (list (current-buffer) (buffer-chars-modified-tick) (point)))
 
-      ;; estimate org block end point according change length
-      (when (and lsp-bridge-enable-org-babel (eq major-mode 'org-mode)
-                 (> begin lsp-bridge--org-babel-block-bop)
-                 (< begin lsp-bridge--org-babel-block-eop))
-        (setq-local lsp-bridge--org-babel-block-eop
-                    (- lsp-bridge--org-babel-block-eop length (- begin end))))
+      ;; sync change for org babel if we enable it
+      (lsp-bridge-org-babel-monitor-after-change begin end length)
 
       ;; Send change_file request to trigger LSP completion.
       (when (lsp-bridge-call-file-api-p)
@@ -1583,11 +1565,6 @@ So we build this macro to restore postion after code format."
 
 (defvar lsp-bridge-mode-map (make-sparse-keymap))
 
-(defcustom lsp-bridge-org-babel-lang-list '("clojure" "latex" "python")
-  "A list of org babel languages in which source code block lsp-bridge will be enabled."
-  :type '(repeat string)
-  :group 'lsp-bridge)
-
 (defvar lsp-bridge-signature-help-timer nil)
 
 (defvar lsp-bridge-search-words-timer nil)
@@ -1629,12 +1606,13 @@ So we build this macro to restore postion after code format."
             (and lsp-bridge-enable-org-babel (eq major-mode 'org-mode)))
     ;; When user open buffer by `ido-find-file', lsp-bridge will throw `FileNotFoundError' error.
     ;; So we need save buffer to disk before enable `lsp-bridge-mode'.
-    (unless (file-exists-p (buffer-file-name))
-      (save-buffer))
+    (unless (lsp-bridge-is-nova-file)
+      (unless (file-exists-p (buffer-file-name))
+        (save-buffer)))
 
     (setq-local acm-backend-lsp-completion-trigger-characters nil)
     (setq-local acm-backend-lsp-completion-position nil)
-    (setq-local acm-backend-lsp-filepath (file-truename buffer-file-name))
+    (setq-local acm-backend-lsp-filepath (lsp-bridge-get-buffer-truename))
     (setq-local acm-backend-lsp-items (make-hash-table :test 'equal))
     (setq-local acm-backend-lsp-server-names nil)
 
@@ -1932,35 +1910,6 @@ SymbolKind (defined in the LSP)."
     ("paths" (setq-local acm-backend-path-items items)))
   (lsp-bridge-try-completion))
 
-
-(cl-defmacro lsp-org-babel-enable (lang)
-  "Support LANG in org source code block."
-  (cl-check-type lang string)
-  (let* ((edit-pre (intern (format "org-babel-edit-prep:%s" lang)))
-         (intern-pre (intern (format "lsp--%s" (symbol-name edit-pre)))))
-    `(progn
-       (defun ,intern-pre (info)
-         (let ((file-name (->> info caddr (alist-get :file))))
-           (unless file-name
-             (setq file-name (concat default-directory ".org-src-babel"))
-             (write-region (point-min) (point-max) file-name))
-           (setq buffer-file-name file-name)
-           (lsp-bridge-mode 1)))
-       (put ',intern-pre 'function-documentation
-            (format "Enable lsp-bridge-mode in the buffer of org source block (%s)."
-                    (upcase ,lang)))
-       (if (fboundp ',edit-pre)
-           (advice-add ',edit-pre :after ',intern-pre)
-         (progn
-           (defun ,edit-pre (info)
-             (,intern-pre info))
-           (put ',edit-pre 'function-documentation
-                (format "Prepare local buffer environment for org source block (%s)."
-                        (upcase ,lang))))))))
-
-(with-eval-after-load 'org
-  (dolist (lang lsp-bridge-org-babel-lang-list)
-    (eval `(lsp-org-babel-enable ,lang))))
 
 ;;; support which-func-mode
 ;;;
