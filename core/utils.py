@@ -29,8 +29,8 @@ import platform
 import sys
 import subprocess
 import queue
-import traceback
 import os
+import json
 
 from epc.client import EPCClient
 from threading import Thread
@@ -86,8 +86,15 @@ def handle_arg_types(arg):
 
     return sexpdata.Quoted(arg)
 
+remote_emacs_socket = None
+def set_remote_emacs_socket(socket):
+    global remote_emacs_socket
+
+    remote_emacs_socket = socket
 
 def eval_in_emacs(method_name, *args):
+    global remote_emacs_socket
+
     if test_interceptor:  # for test purpose, record all eval_in_emacs calls
         test_interceptor(method_name, args)
 
@@ -95,9 +102,17 @@ def eval_in_emacs(method_name, *args):
     sexp = sexpdata.dumps(args)
 
     logger.debug("Eval in Emacs: %s", sexp)
-    # Call eval-in-emacs elisp function.
-    epc_client.call("eval-in-emacs", [sexp])    # type: ignore
 
+    # Call eval-in-emacs elisp function.
+    if remote_emacs_socket:
+        message = {
+            "command": "eval-in-emacs",
+            "sexp": [sexp]
+        }
+        data = json.dumps(message)
+        remote_emacs_socket.send(f"{data}\n".encode("utf-8"))
+    else:
+        epc_client.call("eval-in-emacs", [sexp])    # type: ignore
 
 def message_emacs(message: str):
     """Message to Emacs with prefix."""
