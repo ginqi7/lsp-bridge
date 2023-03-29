@@ -433,6 +433,7 @@ Then LSP-Bridge will start by gdb, please send new issue with `*lsp-bridge*' buf
     (csharp-mode . lsp-bridge-csharp-lsp-server)
     (kotlin-mode . "kotlin-language-server")
     (vhdl-mode . "vhdl-tool")
+    (sql-mode . "sqls")
     )
   "The lang server rule for file mode."
   :type 'cons)
@@ -509,7 +510,9 @@ Then LSP-Bridge will start by gdb, please send new issue with `*lsp-bridge*' buf
     json-ts-mode-hook
     python-ts-mode-hook
     bash-ts-mode-hook
-    typescript-ts-mode-hook)
+    typescript-ts-mode-hook
+    sql-mode-hook
+    )
   "The default mode hook to enable lsp-bridge."
   :type '(repeat variable))
 

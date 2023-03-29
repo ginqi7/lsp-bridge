@@ -1,0 +1,10 @@
+{
+    "name": "sqls",
+    "languageId": "sql",
+    "command": [
+        "sqls",
+        "-config",
+        "$HOME/.config/sqls/config.yml"
+    ],
+    "settings": {}
+}
