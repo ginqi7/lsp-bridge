@@ -5,6 +5,7 @@
   "code_action": ["ruff"],
   "execute_command": ["python-ms", "ruff"],
   "find_define": "python-ms",
+  "find_type_define": "python-ms",
   "find_implementation": "python-ms",
   "find_references": "python-ms",
   "formatting": "python-ms",
@@ -12,5 +13,6 @@
   "signature_help": "python-ms",
   "prepare_rename": "python-ms",
   "rename": "python-ms",
-  "document_symbol": "python-ms"
+  "document_symbol": "python-ms",
+  "workspace_symbol": "python-ms"
 }

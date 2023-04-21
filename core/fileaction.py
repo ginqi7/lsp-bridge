@@ -127,7 +127,7 @@ class FileAction:
             eval_in_emacs("lsp-bridge-set-prefix-style", self.single_server_info.get("prefixStyle", "ascii"))
 
         # Init server names.
-        eval_in_emacs("lsp-bridge-set-server-names", self.filepath, self.get_lsp_server_names())
+        eval_in_emacs("lsp-bridge-set-server-names", self.filepath, get_lsp_file_host(), self.get_lsp_server_names())
 
     @property
     def last_change(self) -> Tuple[float, float]:
@@ -138,7 +138,7 @@ class FileAction:
         """Read file content."""
         file_content = ''
         if self.org_file:
-            file_content = get_emacs_func_result('get-buffer-content', os.path.basename(self.filepath))
+            file_content = get_buffer_content(self.filepath, os.path.basename(self.filepath))
         else:
             with open(self.filepath, encoding="utf-8", errors="ignore") as f:
                 file_content = f.read()
@@ -186,7 +186,7 @@ class FileAction:
                 continue
             elif lsp_server.text_document_sync == 1:
                 if not buffer_content:
-                    buffer_content = get_emacs_func_result('get-buffer-content', buffer_name)
+                    buffer_content = get_buffer_content(self.filepath, buffer_name)
                 lsp_server.send_whole_change_notification(self.filepath, self.version, buffer_content)
             else:
                 lsp_server.send_did_change_notification(self.filepath, self.version, start, end, range_length, change_text)
@@ -201,12 +201,13 @@ class FileAction:
         self.last_change_file_time = time.time()
 
         # Send textDocument/completion 100ms later.
-        self.try_completion_timer = threading.Timer(0.1, lambda : self.try_completion(position, before_char, prefix))
+        delay = 0 if is_running_in_server() else 0.1
+        self.try_completion_timer = threading.Timer(delay, lambda : self.try_completion(position, before_char, prefix))
         self.try_completion_timer.start()
         
     def update_file(self, buffer_name, org_line_bias=None):
         self.org_line_bias = org_line_bias
-        buffer_content = get_emacs_func_result('get-buffer-content', buffer_name)
+        buffer_content = get_buffer_content(self.filepath, buffer_name)
         for lsp_server in self.get_lsp_servers():
             lsp_server.send_whole_change_notification(self.filepath, self.version, buffer_content)
         self.version += 1
@@ -290,7 +291,7 @@ class FileAction:
         # Only push diagnostics to Emacs when ticker is newest.
         # Drop all temporarily diagnostics when typing.
         if ticker == self.diagnostics_ticker:
-            eval_in_emacs("lsp-bridge-diagnostic--render", self.filepath, self.get_diagnostics())
+            eval_in_emacs("lsp-bridge-diagnostic--render", self.filepath, get_lsp_file_host(), self.get_diagnostics())
 
     def push_code_actions(self, actions, server_name, action_kind):
         log_time("Record actions from '{}' for file {}".format(server_name, os.path.basename(self.filepath)))
@@ -379,7 +380,9 @@ class FileAction:
                              "server": server_name,
                              "additionalTextEdits": additional_text_edits,
                              "documentation": documentation
-                         })
+                         },
+                         get_lsp_file_host()
+                         )
 
 
     def rename_file(self, old_filepath, new_filepath):

@@ -5,6 +5,7 @@
   "code_action": ["ruff"],
   "execute_command": ["pylsp", "ruff"],
   "find_define": "pylsp",
+  "find_type_define": "pylsp",
   "find_implementation": "pylsp",
   "find_references": "pylsp",
   "formatting": "pylsp",
@@ -12,5 +13,6 @@
   "signature_help": "pylsp",
   "prepare_rename": "pylsp",
   "rename": "pylsp",
-  "document_symbol": "pylsp"
+  "document_symbol": "pylsp",
+  "workspace_symbol": "pylsp"
 }

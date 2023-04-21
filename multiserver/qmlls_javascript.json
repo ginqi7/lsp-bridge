@@ -5,6 +5,7 @@
   "code_action": ["qmlls"],
   "execute_command": ["qmlls"],
   "find_define": "qmlls",
+  "find_type_define": "qmlls",
   "find_implementation": "qmlls",
   "find_references": "qmlls",
   "formatting": "qmlls",
@@ -12,5 +13,6 @@
   "signature_help": "qmlls",
   "prepare_rename": "qmlls",
   "rename": "qmlls",
-  "document_symbol": "qmalls"
+  "document_symbol": "qmalls",
+  "workspace_symbol": "qmalls"
 }
