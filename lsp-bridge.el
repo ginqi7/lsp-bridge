@@ -430,8 +430,6 @@ Then LSP-Bridge will start by gdb, please send new issue with `*lsp-bridge*' buf
     (erlang-mode .                                                               "erlang-ls")
     ((latex-mode Tex-latex-mode texmode context-mode texinfo-mode bibtex-mode) . lsp-bridge-tex-lsp-server)
     (vhdl-mode . "vhdl-tool")
-    (sql-mode . "sqls")
-    =======
     ((clojure-mode clojurec-mode clojurescript-mode clojurex-mode) .             "clojure-lsp")
     ((sh-mode bash-mode bash-ts-mode) .                                          "bash-language-server")
     ((css-mode css-ts-mode) .                                                    "vscode-css-language-server")
@@ -450,7 +448,7 @@ Then LSP-Bridge will start by gdb, please send new issue with `*lsp-bridge*' buf
     (kotlin-mode .                                                               "kotlin-language-server")
     (verilog-mode .                                                              "verible")
     (vhdl-mode .                                                                 "vhdl-tool")
-    >>>>>>> origin/master
+    (sql-mode . "sqls")
     )
   "The lang server rule for file mode."
   :type 'cons)
