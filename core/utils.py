@@ -119,6 +119,12 @@ def get_buffer_content(filename, buffer_name):
     else:
         return get_emacs_func_result('get-buffer-content', buffer_name)
 
+def get_current_line():
+    return get_emacs_func_result('get-current-line')
+
+def get_ssh_password(host):
+    return get_emacs_func_result('get-ssh-password', host)
+
 remote_eval_socket = None
 def set_remote_eval_socket(socket):
     global remote_eval_socket
@@ -229,8 +235,7 @@ def get_emacs_vars(args):
             "command": "get_emacs_vars",
             "args": args
         })
-        results = json.loads(results)
-        return results
+        return parse_json_content(results)
     else:
         results = epc_client.call_sync("get-emacs-vars", args)
         return list(map(lambda result: convert_emacs_bool(result[0], result[1]) if result != [] else False, results))
@@ -245,17 +250,17 @@ def get_emacs_func_result(method_name, *args):
             "method": method_name,
             "args": args
         })
-        return json.loads(result)
+        return parse_json_content(result)
     else:
         result = epc_client.call_sync(method_name, args)    # type: ignore
         return result
 
 def get_command_result(command_string, cwd):
     import subprocess
-    
+
     process = subprocess.Popen(command_string, cwd=cwd, shell=True, text=True,
                                stdout=subprocess.PIPE, stderr=subprocess.PIPE,
-                               encoding="utf-8")
+                               encoding="utf-8", errors="replace")
     ret = process.wait()
     return "".join((process.stdout if ret == 0 else process.stderr).readlines()).strip()    # type: ignore
 
@@ -348,7 +353,7 @@ def get_from_path_dict(path_dict, filepath):
 
 def get_project_path(filepath):
     project_path = get_emacs_func_result("get-project-path", filepath)
-    
+
     if type(project_path) == str:
         return project_path
     else:
@@ -358,7 +363,7 @@ def get_project_path(filepath):
             return get_command_result("git rev-parse --show-toplevel", dir_path)
         else:
             return filepath
-        
+
 def log_time(message):
     import datetime
     logger.info("\n--- [{}] {}".format(datetime.datetime.now().time(), message))
@@ -434,24 +439,35 @@ def touch(path):
         with open(path, 'a'):
             os.utime(path)
 
+def rebuild_content_from_diff(content, start_pos, end_pos, change_text):
+    start_line = start_pos['line']
+    start_char = start_pos['character']
+    end_line = end_pos['line']
+    end_char = end_pos['character']
+
+    start_pos = get_position(content, start_line, start_char)
+    end_pos = get_position(content, end_line, end_char)
+
+    return content[:start_pos] + change_text + content[end_pos:]
+
 class MessageSender(Thread):
-    
+
     def __init__(self, process: subprocess.Popen):
         super().__init__()
-        
+
         self.process = process
         self.queue = queue.Queue()
-        
+
     def send_request(self, message):
         self.queue.put(message)
-        
+
 class MessageReceiver(Thread):
-    
+
     def __init__(self, process: subprocess.Popen):
         super().__init__()
-        
+
         self.process = process
         self.queue = queue.Queue()
-        
+
     def get_message(self):
         return self.queue.get(block=True)

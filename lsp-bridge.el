@@ -115,6 +115,7 @@
       (setq-local acm-backend-lsp-fetch-completion-item-ticker (list acm-backend-lsp-filepath key kind)))))
 
 (defcustom lsp-bridge-completion-popup-predicates '(
+                                                    lsp-bridge-not-delete-command
                                                     lsp-bridge-not-follow-complete
                                                     lsp-bridge-not-match-stop-commands
                                                     lsp-bridge-not-match-hide-characters
@@ -153,7 +154,7 @@ Setting this to nil or 0 will turn off the indicator."
 (defcustom lsp-bridge-completion-stop-commands
   '("undo-tree-undo" "undo-tree-redo"
     "kill-region" "delete-block-backward"
-    "python-black-buffer" "acm-complete-or-expand-yas-snippet"
+    "python-black-buffer" "acm-complete-or-expand-yas-snippet" "acm-insert-number-or-complete-candiate"
     "yank" "string-rectangle" "query-replace" "grammatical-edit-unwrap")
   "If last command is match this option, stop popup completion ui."
   :type 'cons
@@ -209,11 +210,6 @@ Setting this to nil or 0 will turn off the indicator."
   :type 'boolean
   :group 'lsp-bridge)
 
-(defcustom lsp-bridge-search-words-rebuild-cache-idle 1
-  "The idle seconds to rebuild words cache."
-  :type 'float
-  :group 'lsp-bridge)
-
 (defcustom lsp-bridge-search-words-prohibit-file-extensions '("png" "jpg" "jpeg" "gif" "pdf")
   "The file extensions to prohibit search words."
   :type 'list
@@ -254,6 +250,11 @@ Setting this to nil or 0 will turn off the indicator."
   :type 'boolean
   :group 'lsp-bridge)
 
+(defcustom lsp-bridge-enable-completion-in-string nil
+  "Whether to enable completion in string, default is disable."
+  :type 'boolean
+  :group 'lsp-bridge)
+
 (defface lsp-bridge-font-lock-flash
   '((t (:inherit highlight)))
   "Face to flash the current line."
@@ -261,6 +262,8 @@ Setting this to nil or 0 will turn off the indicator."
 
 (defvar lsp-bridge-last-change-command nil)
 (defvar lsp-bridge-last-change-position nil)
+(defvar lsp-bridge-last-change-is-delete-command-p nil)
+
 (defvar lsp-bridge-server nil
   "The LSP-Bridge Server.")
 
@@ -286,8 +289,10 @@ Setting this to nil or 0 will turn off the indicator."
                (lsp-bridge-epc-define-method mngr 'get-workspace-folder 'lsp-bridge--get-workspace-folder-func)
                (lsp-bridge-epc-define-method mngr 'get-multi-lang-server 'lsp-bridge--get-multi-lang-server-func)
                (lsp-bridge-epc-define-method mngr 'get-single-lang-server 'lsp-bridge--get-single-lang-server-func)
-               (lsp-bridge-epc-define-method mngr 'get-user-emacs-directory 'lsp-bridge--user-emacs-directory)
+               (lsp-bridge-epc-define-method mngr 'get-user-emacs-directory 'lsp-bridge--user-emacs-directory-func)
                (lsp-bridge-epc-define-method mngr 'get-buffer-content 'lsp-bridge--get-buffer-content-func)
+               (lsp-bridge-epc-define-method mngr 'get-current-line 'lsp-bridge--get-current-line-func)
+               (lsp-bridge-epc-define-method mngr 'get-ssh-password 'lsp-bridge--get-ssh-password-func)
                ))))
     (if lsp-bridge-server
         (setq lsp-bridge-server-port (process-contact lsp-bridge-server :service))
@@ -416,6 +421,7 @@ Then LSP-Bridge will start by gdb, please send new issue with `*lsp-bridge*' buf
     ((python-mode python-ts-mode) .                                              lsp-bridge-python-lsp-server)
     (ruby-mode .                                                                 "solargraph")
     ((rust-mode rustic-mode rust-ts-mode) .                                      "rust-analyzer")
+	(move-mode .                                                                 "move-analyzer")
     ((elixir-mode elixir-ts-mode heex-ts-mode) .                                 lsp-bridge-elixir-lsp-server)
     ((go-mode go-ts-mode) .                                                      "gopls")
     (groovy-mode .                                                               "groovy-language-server")
@@ -463,7 +469,9 @@ Then LSP-Bridge will start by gdb, please send new issue with `*lsp-bridge*' buf
     python-mode-hook
     ruby-mode-hook
     lua-mode-hook
+ 	move-mode-hook
     rust-mode-hook
+    rust-ts-mode-hook
     rustic-mode-hook
     erlang-mode-hook
     elixir-mode-hook
@@ -515,6 +523,8 @@ Then LSP-Bridge will start by gdb, please send new issue with `*lsp-bridge*' buf
     kotlin-mode-hook
     vhdl-mode-hook
     typst-mode-hook
+    graphql-mode-hook
+
     c-ts-mode-hook
     c++-ts-mode-hook
     cmake-ts-mode-hook
@@ -527,6 +537,8 @@ Then LSP-Bridge will start by gdb, please send new issue with `*lsp-bridge*' buf
     bash-ts-mode-hook
     typescript-ts-mode-hook
     sql-mode-hook
+    go-ts-mode-hook
+    yaml-ts-mode-hook
     )
   "The default mode hook to enable lsp-bridge."
   :type '(repeat variable))
@@ -547,6 +559,7 @@ you can customize `lsp-bridge-get-workspace-folder' to return workspace folder p
 
 (defvar lsp-bridge-formatting-indent-alist
   '((c-mode                     . c-basic-offset) ; C
+    (c-ts-mode                  . c-basic-offset) ; C
     (c++-mode                   . c-basic-offset) ; C++
     (csharp-mode                . c-basic-offset) ; C#
     (csharp-tree-sitter-mode    . csharp-tree-sitter-indent-offset) ; C#
@@ -579,6 +592,7 @@ you can customize `lsp-bridge-get-workspace-folder' to return workspace folder p
     (enh-ruby-mode              . enh-ruby-indent-level) ; Ruby
     (crystal-mode               . crystal-indent-level) ; Crystal (Ruby)
     (css-mode                   . css-indent-offset)    ; CSS
+	(move-mode                  . move-indent-offset)   ; Move
     (rust-mode                  . rust-indent-offset)   ; Rust
     (rust-ts-mode               . rust-ts-mode-indent-offset) ; Rust
     (rustic-mode                . rustic-indent-offset)       ; Rust
@@ -590,6 +604,8 @@ you can customize `lsp-bridge-get-workspace-folder' to return workspace folder p
     (kotlin-mode                . c-basic-offset)     ; Kotlin
     (verilog-mode               . vhdl-indent-level)  ; Verilog
     (vhdl-mode                  . vhdl-basic-offset)  ; VHDL
+    (go-mode                    . c-basic-offset)     ;Golang
+    (go-ts-mode                 . c-basic-offset)     ;Golang
     (default                    . standard-indent)) ; default fallback
   "A mapping from `major-mode' to its indent variable.")
 
@@ -695,18 +711,29 @@ So we build this macro to restore postion after code format."
       (lsp-bridge-get-single-lang-server-by-extension filename)
       (lsp-bridge-get-single-lang-server-by-file-mode filename)))
 
-(defun lsp-bridge--user-emacs-directory ()
+(defun lsp-bridge--user-emacs-directory-func ()
   "Get lang server with project path, file path or file extension."
   (expand-file-name user-emacs-directory))
 
-(defun lsp-bridge--get-buffer-content-func (buffer-name)
+(defun lsp-bridge--get-buffer-content-func (buffer-name &optional no-org-babel)
   "Get buffer content for lsp. BUFFER-NAME is name eval from (buffer-name)."
   (when-let* ((buf (get-buffer buffer-name)))
     (if (and lsp-bridge-enable-org-babel
-             (eq major-mode 'org-mode))
-        (and lsp-bridge-org-babel--info-cache (org-element-property :value lsp-bridge-org-babel--info-cache))
+             (eq major-mode 'org-mode) (not no-org-babel))
+        (and lsp-bridge-org-babel--info-cache
+             (org-element-property :value lsp-bridge-org-babel--info-cache))
       (with-current-buffer buf
         (buffer-substring-no-properties (point-min) (point-max))))))
+
+(defun lsp-bridge--get-current-line-func ()
+  (buffer-substring-no-properties (line-beginning-position) (line-end-position)))
+
+(defun lsp-bridge--get-ssh-password-func (host)
+  (condition-case nil
+      (read-passwd (format "Password for %s: " host))
+    (quit (progn
+            (message "Cancelled password input.")
+            nil))))
 
 (defun lsp-bridge-get-lang-server-by-extension (filename extension-list)
   "Get lang server for file extension."
@@ -807,9 +834,9 @@ So we build this macro to restore postion after code format."
        (lsp-bridge-epc-live-p lsp-bridge-epc-process)))
 
 (defun lsp-bridge-call-file-api (method &rest args)
-  (when (lsp-bridge-call-file-api-p)
-    (if (lsp-bridge-is-remote-file)
-        (lsp-bridge-remote-send-lsp-request method args)
+  (if (lsp-bridge-is-remote-file)
+      (lsp-bridge-remote-send-lsp-request method args)
+    (when (lsp-bridge-call-file-api-p)
       (if (and (boundp 'acm-backend-lsp-filepath)
                (file-exists-p acm-backend-lsp-filepath))
           (if lsp-bridge-buffer-file-deleted
@@ -938,6 +965,11 @@ So we build this macro to restore postion after code format."
 (defun lsp-bridge-monitor-pre-command ()
   (setq-local lsp-bridge-cursor-before-command (point))
 
+  ;; Tab-and-go
+  (when (and acm-preview-overlay
+             (not (string-prefix-p "acm" (format "%s" this-command))))
+    (acm-complete))
+
   (when acm-filter-overlay
     (let ((this-command-string (format "%s" this-command)))
       (cond ((member this-command-string '("self-insert-command" "org-self-insert-command"))
@@ -953,7 +985,7 @@ So we build this macro to restore postion after code format."
 
   (let ((this-command-string (format "%s" this-command)))
     (when (and lsp-bridge-mode
-               (member this-command-string '("self-insert-command" "org-self-insert-command")))
+               (member this-command-string '("self-insert-command" "org-self-insert-command" "lsp-bridge-popup-complete-menu")))
       (lsp-bridge-try-completion))
 
     (when (lsp-bridge-has-lsp-server-p)
@@ -993,19 +1025,18 @@ So we build this macro to restore postion after code format."
       )))
 
 (defun lsp-bridge-close-buffer-file ()
-  (when (and (lsp-bridge-has-lsp-server-p)
-             (lsp-bridge-epc-live-p lsp-bridge-epc-process)
-             (boundp 'acm-backend-lsp-filepath))
-    (if (lsp-bridge-is-remote-file)
-        (lsp-bridge-remote-send-func-request "close_file" (list acm-backend-lsp-filepath))
-      (lsp-bridge-call-async "close_file" acm-backend-lsp-filepath)))
+  (if (lsp-bridge-is-remote-file)
+      (progn
+        (lsp-bridge-remote-send-func-request "close_file" (list lsp-bridge-remote-file-path))
+        (lsp-bridge-remote-send-func-request "search_file_words_close_file" (list lsp-bridge-remote-file-path)))
 
-  (when (and buffer-file-name
-             (lsp-bridge-epc-live-p lsp-bridge-epc-process))
-    (lsp-bridge-call-async "search_file_words_close_file" buffer-file-name))
+    (when (lsp-bridge-epc-live-p lsp-bridge-epc-process)
+      (when (and (lsp-bridge-has-lsp-server-p)
+                 (boundp 'acm-backend-lsp-filepath))
+        (lsp-bridge-call-async "close_file" acm-backend-lsp-filepath))
 
-  (when (lsp-bridge-is-remote-file)
-    (lsp-bridge-remote-send-func-request "search_file_words_close_file" (list lsp-bridge-remote-file-path))))
+      (when buffer-file-name
+        (lsp-bridge-call-async "search_file_words_close_file" buffer-file-name)))))
 
 (defun lsp-bridge-set-prefix-style (prefix-style)
   ;; Wen LSP server need `acm-get-input-prefix-bound' return ASCII keyword prefix,
@@ -1056,12 +1087,27 @@ So we build this macro to restore postion after code format."
                          lsp-bridge-completion-popup-predicates)
                (progn
                  (acm-template-candidate-init)
-                 (acm-update))
-             (acm-hide))))))
+                 (acm-update)
+
+                 ;; We need reset `lsp-bridge-manual-complete-flag' if completion menu popup by `lsp-bridge-popup-complete-menu'.
+                 (when lsp-bridge-complete-manually
+                   (setq-local lsp-bridge-manual-complete-flag nil)))
+             (acm-hide)
+             )))))
 
 (defun lsp-bridge-popup-complete-menu ()
   (interactive)
-  (acm-update))
+  ;; Set `lsp-bridge-manual-complete-flag' to non-nil, make sure poup completion menu once.
+  (setq-local lsp-bridge-manual-complete-flag t)
+
+  ;; We send `try_completion' request directly, because user input nothing before call command `lsp-bridge-popup-complete-menu'.
+  (lsp-bridge-call-file-api "try_completion"
+                            (lsp-bridge--position)
+                            (acm-char-before)
+                            (acm-get-input-prefix))
+
+  ;; Complete other non-LSP backends.
+  (lsp-bridge-complete-other-backends))
 
 (defun lsp-bridge-not-match-stop-commands ()
   "Hide completion if `lsp-bridge-last-change-command' match commands in `lsp-bridge-completion-stop-commands'."
@@ -1078,6 +1124,8 @@ So we build this macro to restore postion after code format."
 (defun lsp-bridge-not-in-string ()
   "Hide completion if cursor in string area."
   (or
+   ;; Allow completion in string.
+   lsp-bridge-enable-completion-in-string
    ;; Allow sdcv completion in string area
    acm-enable-search-sdcv-words
    ;; Allow volar popup completion menu in string.
@@ -1093,8 +1141,7 @@ So we build this macro to restore postion after code format."
      (and (thing-at-point 'filename)
           (or (file-exists-p (file-name-directory (thing-at-point 'filename)))
               ;; Allow string in lsp-bridge-remote file.
-              (lsp-bridge-is-remote-file))))
-   ))
+              (lsp-bridge-is-remote-file))))))
 
 (defun lsp-bridge-not-execute-macro ()
   "Hide completion during executing macros."
@@ -1105,10 +1152,16 @@ So we build this macro to restore postion after code format."
   (not (and (featurep 'markmacro)
             markmacro-overlays)))
 
+(defun lsp-bridge-not-delete-command ()
+  "Hide completion menu if last command is delete command."
+  (not lsp-bridge-last-change-is-delete-command-p))
+
 (defun lsp-bridge-not-follow-complete ()
   "Hide completion if last command is `acm-complete'."
-  (or (not (member (format "%s" last-command) '("acm-complete" "acm-complete-quick-access")))
-      (member (format "%s" this-command) '("self-insert-command" "org-self-insert-command"))))
+  (or
+   (not (member (format "%s" last-command) '("acm-complete" "acm-complete-quick-access")))
+   (member (format "%s" this-command) '("self-insert-command" "org-self-insert-command"))
+   ))
 
 (defun lsp-bridge-not-only-blank-before-cursor ()
   "Hide completion if only blank before cursor."
@@ -1146,13 +1199,19 @@ So we build this macro to restore postion after code format."
   (not (and (boundp 'mind-wave-is-response-p)
             mind-wave-is-response-p)))
 
+(defvar-local lsp-bridge-manual-complete-flag nil)
+
 (defun lsp-bridge-not-complete-manually ()
   "If `lsp-bridge-complete-manually' is non-nil, hide completion menu."
   (or
-   ;; Always update candidate if completion menu is visible now.
+   ;; Don't hide completion menu if it has show up.
    (acm-frame-visible-p acm-menu-frame)
-   ;; Don't update candidate if `lsp-bridge-complete-manually' is non-nil.
-   (not lsp-bridge-complete-manually)))
+
+   ;; Show completion menu when `lsp-bridge-complete-manually' and `lsp-bridge-manual-complete-flag' are non-nil.
+   ;; If `lsp-bridge-complete-manually' is nil, not check `lsp-bridge-manual-complete-flag'.
+   (not lsp-bridge-complete-manually)
+   lsp-bridge-manual-complete-flag
+   ))
 
 (defun lsp-bridge-not-in-org-table ()
   (not (and (boundp 'org-at-table-p)
@@ -1181,19 +1240,23 @@ So we build this macro to restore postion after code format."
 (defvar-local lsp-bridge--before-change-end-pos nil)
 
 (defun lsp-bridge-monitor-before-change (begin end)
-  (when (lsp-bridge-has-lsp-server-p)
-    ;; send whole org src block to lsp server
-    (when (and lsp-bridge-enable-org-babel (eq major-mode 'org-mode)
-               lsp-bridge-org-babel--block-bop
-               lsp-bridge-org-babel--update-file-before-change)
-      (setq-local lsp-bridge-org-babel--update-file-before-change nil)
-      (lsp-bridge-call-file-api "update_file" (buffer-name)
-                                (1- (line-number-at-pos lsp-bridge-org-babel--block-bop t))))
+  ;; Use `save-match-data' protect match data, avoid conflict with command call `search-regexp'.
+  (save-match-data
+    (when (lsp-bridge-has-lsp-server-p)
+      ;; send whole org src block to lsp server
+      (when (and lsp-bridge-enable-org-babel (eq major-mode 'org-mode)
+                 lsp-bridge-org-babel--block-bop
+                 lsp-bridge-org-babel--update-file-before-change)
+        (setq-local lsp-bridge-org-babel--update-file-before-change nil)
+        (lsp-bridge-call-file-api "update_file" (buffer-name)
+                                  (1- (line-number-at-pos lsp-bridge-org-babel--block-bop t)))))
 
-    (setq-local lsp-bridge--before-change-begin-pos (lsp-bridge--point-position begin))
-    (setq-local lsp-bridge--before-change-end-pos (lsp-bridge--point-position end))
-
-    ))
+    ;; Set `lsp-bridge--before-change-begin-pos' and `lsp-bridge--before-change-end-pos'
+    ;; if `lsp-bridge-has-lsp-server-p' or `lsp-bridge-is-remote-file'
+    (when (or (lsp-bridge-has-lsp-server-p)
+              (lsp-bridge-is-remote-file))
+      (setq-local lsp-bridge--before-change-begin-pos (lsp-bridge--point-position begin))
+      (setq-local lsp-bridge--before-change-end-pos (lsp-bridge--point-position end)))))
 
 (defun lsp-bridge-monitor-post-self-insert ()
   ;; Make sure this function be called after `electric-pair-mode'
@@ -1218,19 +1281,24 @@ So we build this macro to restore postion after code format."
         (list (current-buffer) (buffer-chars-modified-tick) (point))))
 
 (defun lsp-bridge-monitor-after-change (begin end length)
-  (unless lsp-bridge-revert-buffer-flag
-    (let ((this-command-string (format "%s" this-command)))
+  ;; Use `save-match-data' protect match data, avoid conflict with command call `search-regexp'.
+  (save-match-data
+    (unless lsp-bridge-revert-buffer-flag
       ;; Record last command to `lsp-bridge-last-change-command'.
       (setq lsp-bridge-last-change-command (format "%s" this-command))
 
       ;; Record last change position to avoid popup outdate completions.
       (setq lsp-bridge-last-change-position (list (current-buffer) (buffer-chars-modified-tick) (point)))
 
-      ;; sync change for org babel if we enable it
+      ;; Set `lsp-bridge-last-change-is-delete-command-p'
+      (setq lsp-bridge-last-change-is-delete-command-p (> length 0))
+
+      ;; Sync change for org babel if we enable it
       (lsp-bridge-org-babel-monitor-after-change begin end length)
 
       ;; Send change_file request to trigger LSP completion.
-      (when (lsp-bridge-call-file-api-p)
+      (when (or (lsp-bridge-call-file-api-p)
+                (lsp-bridge-is-remote-file))
         (lsp-bridge-call-file-api "change_file"
                                   lsp-bridge--before-change-begin-pos
                                   lsp-bridge--before-change-end-pos
@@ -1241,70 +1309,82 @@ So we build this macro to restore postion after code format."
                                   (buffer-name)
                                   (acm-get-input-prefix)))
 
-      (when (and (lsp-bridge-epc-live-p lsp-bridge-epc-process)
-                 ;; NOTE:
-                 ;;
-                 ;; Most org-mode commands will make lsp-bridge failed that casue (thing-at-point 'symbol t).
-                 ;; We only allow `org-self-insert-command' trigger lsp-bridge action.
-                 (not (and (or (string-prefix-p "org-" this-command-string)
-                               (string-prefix-p "+org/" this-command-string))
-                           (not (string-equal this-command-string "org-self-insert-command")))))
-        (let* ((current-word (thing-at-point 'word t))
-               (current-symbol (thing-at-point 'symbol t)))
-          ;; TabNine search.
-          (when acm-enable-tabnine
-            (lsp-bridge-tabnine-complete))
 
-          ;; Codeium search.
-          (when acm-enable-codeium
-            (lsp-bridge-codeium-complete))
+      ;; Complete other non-LSP backends.
+      (lsp-bridge-complete-other-backends)
 
-          ;; Search sdcv dictionary.
-          (when acm-enable-search-sdcv-words
-            ;; Search words if current prefix is not empty.
-            (unless (or (string-equal current-word "") (null current-word))
-              (lsp-bridge-call-async "search_sdcv_words_search" current-word)))
+      ;; Update search words backend.
+      (lsp-bridge-search-words-update
+       lsp-bridge--before-change-begin-pos
+       lsp-bridge--before-change-end-pos
+       (buffer-substring-no-properties begin end)))))
 
-          ;; Search elisp symbol.
-          (lsp-bridge-elisp-symbols-search current-symbol)
+(defun lsp-bridge-complete-other-backends ()
+  (let ((this-command-string (format "%s" this-command)))
+    (when (lsp-bridge-epc-live-p lsp-bridge-epc-process)
+      (let* ((current-word (thing-at-point 'word t))
+             (current-symbol (thing-at-point 'symbol t)))
+        ;; TabNine search.
+        (when acm-enable-tabnine
+          (lsp-bridge-tabnine-complete))
 
-          ;; Send change file to search-words backend.
-          (unless lsp-bridge-prohibit-completion
-            (when (or buffer-file-name
-                      (lsp-bridge-is-remote-file))
-              (let ((current-word (acm-backend-search-file-words-get-point-string)))
-                ;; Search words if current prefix is not empty.
-                (unless (or (string-equal current-word "") (null current-word))
-                  (if (lsp-bridge-is-remote-file)
-                      (lsp-bridge-remote-send-func-request "search_file_words_search" (list current-word))
-                    (lsp-bridge-call-async "search_file_words_search" current-word))))))
+        ;; Codeium search.
+        (when (and acm-enable-codeium
+                   ;; Codeium backend not support remote file now, disable it temporary.
+                   (not (lsp-bridge-is-remote-file))
+                   ;; Don't enable codeium on Markdown mode, Org mode, ielm and minibuffer, very disruptive to writing.
+                   (not (or (derived-mode-p 'markdown-mode)
+                            (eq major-mode 'org-mode)
+                            (derived-mode-p 'inferior-emacs-lisp-mode)
+                            (minibufferp))))
+          (lsp-bridge-codeium-complete))
 
-          ;; Send tailwind keyword search request just when cursor in class area.
-          (when (and (derived-mode-p 'web-mode)
-                     (acm-in-string-p)
-                     (save-excursion
-                       (search-backward-regexp "class=" (point-at-bol) t)))
-            (unless (or (string-equal current-symbol "") (null current-symbol))
-              (if (lsp-bridge-is-remote-file)
-                  (lsp-bridge-remote-send-func-request "search_tailwind_keywords_search" (list lsp-bridge-remote-file-path current-symbol))
-                (lsp-bridge-call-async "search_tailwind_keywords_search" buffer-file-name current-symbol))))
+        ;; Search sdcv dictionary.
+        (when acm-enable-search-sdcv-words
+          ;; Search words if current prefix is not empty.
+          (unless (or (string-equal current-word "") (null current-word))
+            (lsp-bridge-call-async "search_sdcv_words_search" current-word)))
 
-          ;; Send path search request when detect path string.
-          (if (acm-in-string-p)
-              (when-let* ((filename (thing-at-point 'filename t))
-                          (dirname (ignore-errors (expand-file-name (file-name-directory filename)))))
+        ;; Search elisp symbol.
+        (lsp-bridge-elisp-symbols-search current-symbol)
+
+        ;; Send change file to search-words backend.
+        (unless lsp-bridge-prohibit-completion
+          (when (or buffer-file-name
+                    (lsp-bridge-is-remote-file))
+            (let ((current-word (acm-backend-search-file-words-get-point-string)))
+              ;; Search words if current prefix is not empty.
+              (unless (or (string-equal current-word "") (null current-word))
                 (if (lsp-bridge-is-remote-file)
-                    (lsp-bridge-remote-send-func-request "search_paths_search"
-                                                         (list dirname (file-name-base filename)))
-                  (when (file-exists-p dirname)
-                    (lsp-bridge-call-async "search_paths_search"
-                                           dirname
-                                           (file-name-base filename)
-                                           ))))
-            ;; We need cleanup `acm-backend-path-items' when cursor not in string.
-            ;; Otherwise, other completion backend won't show up.
-            (setq-local acm-backend-path-items nil))
-          )))))
+                    (lsp-bridge-remote-send-func-request "search_file_words_search" (list current-word))
+                  (lsp-bridge-call-async "search_file_words_search" current-word))))))
+
+        ;; Send tailwind keyword search request just when cursor in class area.
+        (when (and (derived-mode-p 'web-mode)
+                   (acm-in-string-p)
+                   (save-excursion
+                     (search-backward-regexp "class=" (point-at-bol) t)))
+          (unless (or (string-equal current-symbol "") (null current-symbol))
+            (if (lsp-bridge-is-remote-file)
+                (lsp-bridge-remote-send-func-request "search_tailwind_keywords_search" (list lsp-bridge-remote-file-path current-symbol))
+              (lsp-bridge-call-async "search_tailwind_keywords_search" buffer-file-name current-symbol))))
+
+        ;; Send path search request when detect path string.
+        (if (acm-in-string-p)
+            (when-let* ((filename (thing-at-point 'filename t))
+                        (dirname (ignore-errors (expand-file-name (file-name-directory filename)))))
+              (if (lsp-bridge-is-remote-file)
+                  (lsp-bridge-remote-send-func-request "search_paths_search"
+                                                       (list dirname (file-name-base filename)))
+                (when (file-exists-p dirname)
+                  (lsp-bridge-call-async "search_paths_search"
+                                         dirname
+                                         (file-name-base filename)
+                                         ))))
+          ;; We need cleanup `acm-backend-path-items' when cursor not in string.
+          ;; Otherwise, other completion backend won't show up.
+          (setq-local acm-backend-path-items nil))
+        ))))
 
 (defun lsp-bridge-elisp-symbols-update ()
   "We need synchronize elisp symbols to Python side when idle."
@@ -1352,34 +1432,18 @@ So we build this macro to restore postion after code format."
                                (mapcar #'buffer-file-name (buffer-list)))))
       (lsp-bridge-call-async "search_file_words_index_files" files))))
 
-(defun lsp-bridge-search-words-update ()
+(defun lsp-bridge-search-words-update (begin-pos end-pos change-text)
   (if (lsp-bridge-is-remote-file)
       (progn
         (lsp-bridge-remote-save-buffer)
         (lsp-bridge-remote-send-func-request "search_file_words_load_file" (list lsp-bridge-remote-file-path)))
-    (when (and buffer-file-name
-               (lsp-bridge-epc-live-p lsp-bridge-epc-process)
-               (not (member (file-name-extension buffer-file-name)
-                            lsp-bridge-search-words-prohibit-file-extensions)))
-      (lsp-bridge-call-async "search_file_words_change_file"
-                             buffer-file-name
-                             (base64-encode-string (encode-coding-string (buffer-string) 'utf-8))
-                             ))))
-
-(defun lsp-bridge-search-words-rebuild-cache ()
-  "Rebuild words cache when idle."
-  (if (lsp-bridge-is-remote-file)
-      (progn
-        (lsp-bridge-search-words-update)
-
-        (unless (eq last-command 'mwheel-scroll)
-          (lsp-bridge-remote-send-func-request "search_file_words_rebuild_cache" (list))))
     (when (lsp-bridge-epc-live-p lsp-bridge-epc-process)
-      ;; Update file search words when idle.
-      (lsp-bridge-search-words-update)
-
-      (unless (eq last-command 'mwheel-scroll)
-        (lsp-bridge-call-async "search_file_words_rebuild_cache")))))
+      (lsp-bridge-call-async "search_file_words_change_buffer"
+                             (buffer-name)
+                             begin-pos
+                             end-pos
+                             change-text
+                             ))))
 
 (defun lsp-bridge-completion-ui-visible-p ()
   (acm-frame-visible-p acm-menu-frame))
@@ -1486,8 +1550,9 @@ So we build this macro to restore postion after code format."
 
 (defun lsp-bridge-signature-help-fetch ()
   (interactive)
-  (unless (equal lsp-bridge-cursor-before-command lsp-bridge-cursor-after-command)
-    (lsp-bridge-call-file-api "signature_help" (lsp-bridge--position))))
+  (when (lsp-bridge-has-lsp-server-p)
+    (unless (equal lsp-bridge-cursor-before-command lsp-bridge-cursor-after-command)
+      (lsp-bridge-call-file-api "signature_help" (lsp-bridge--position)))))
 
 (defun lsp-bridge-pick-file-path (filename)
   ;; Remove `file://' and `:file://' prefix.
@@ -1579,14 +1644,7 @@ So we build this macro to restore postion after code format."
                    :max-height lsp-bridge-lookup-doc-tooltip-max-height)))
 
 (defun lsp-bridge-hide-doc-tooltip ()
-  (posframe-hide lsp-bridge-lookup-doc-tooltip)
-
-  (when acm-markdown-render-background
-    (set-face-background 'markdown-code-face acm-markdown-render-background)
-    (setq acm-markdown-render-background nil))
-
-  (when acm-markdown-render-height
-    (set-face-attribute 'markdown-code-face nil :height acm-markdown-render-height)))
+  (posframe-hide lsp-bridge-lookup-doc-tooltip))
 
 (defvar lsp-bridge-signature-posframe-params
   (list :poshandler #'posframe-poshandler-point-bottom-left-corner-upward
@@ -1666,7 +1724,6 @@ So we build this macro to restore postion after code format."
     (post-command-hook lsp-bridge-monitor-post-command nil t)
     (after-save-hook lsp-bridge-monitor-after-save nil t)
     (kill-buffer-hook lsp-bridge-close-buffer-file nil t)
-    (find-file-hook lsp-bridge-search-words-update nil t)
     (before-revert-hook lsp-bridge-close-buffer-file nil t)
     (post-self-insert-hook lsp-bridge-monitor-post-self-insert 90 t)
     ))
@@ -1692,53 +1749,54 @@ So we build this macro to restore postion after code format."
 (defun lsp-bridge--enable ()
   "Enable LSP Bridge mode."
 
-  ;; Disable backup file.
-  ;; Please use my another plugin `https://github.com/manateelazycat/auto-save' and use git for file version management.
-  (when lsp-bridge-disable-backup
-    (setq make-backup-files nil)
-    (setq auto-save-default nil)
-    (setq create-lockfiles nil))
+  ;; Don't enable lsp-bridge when current buffer is acm buffer.
+  (unless (or (equal (buffer-name (current-buffer)) acm-buffer)
+              (equal (buffer-name (current-buffer)) acm-doc-buffer))
+    ;; Disable backup file.
+    ;; Please use my another plugin `https://github.com/manateelazycat/auto-save' and use git for file version management.
+    (when lsp-bridge-disable-backup
+      (setq make-backup-files nil)
+      (setq auto-save-default nil)
+      (setq create-lockfiles nil))
 
-  ;; Add `lsp-bridge-symbols--current-defun' to `whic-func-functions'.
-  (if (and lsp-bridge-symbols-enable-which-func
-           (featurep 'which-func) which-function-mode)
-      (setq-local which-func-functions
-                  (add-to-list 'which-func-functions #'lsp-bridge-symbols--current-defun)))
+    ;; Add `lsp-bridge-symbols--current-defun' to `whic-func-functions'.
+    (if (and lsp-bridge-symbols-enable-which-func
+             (featurep 'which-func) which-function-mode)
+        (setq-local which-func-functions
+                    (add-to-list 'which-func-functions #'lsp-bridge-symbols--current-defun)))
 
-  (setq-local lsp-bridge-revert-buffer-flag nil)
+    (setq-local lsp-bridge-revert-buffer-flag nil)
 
-  (acm-run-idle-func acm-backend-elisp-symbols-update-timer lsp-bridge-elisp-symbols-update-idle 'lsp-bridge-elisp-symbols-update)
+    (acm-run-idle-func acm-backend-elisp-symbols-update-timer lsp-bridge-elisp-symbols-update-idle 'lsp-bridge-elisp-symbols-update)
 
-  (when (or (lsp-bridge-has-lsp-server-p)
-            ;; init acm backend for org babel
-            (and lsp-bridge-enable-org-babel (eq major-mode 'org-mode)))
-    ;; When user open buffer by `ido-find-file', lsp-bridge will throw `FileNotFoundError' error.
-    ;; So we need save buffer to disk before enable `lsp-bridge-mode'.
-    (unless (lsp-bridge-is-remote-file)
-      (unless (file-exists-p (buffer-file-name))
-        (save-buffer)))
+    (when (or (lsp-bridge-has-lsp-server-p)
+              ;; init acm backend for org babel
+              (and lsp-bridge-enable-org-babel (eq major-mode 'org-mode)))
+      ;; When user open buffer by `ido-find-file', lsp-bridge will throw `FileNotFoundError' error.
+      ;; So we need save buffer to disk before enable `lsp-bridge-mode'.
+      (unless (lsp-bridge-is-remote-file)
+        (unless (file-exists-p (buffer-file-name))
+          (save-buffer)))
 
-    (setq-local acm-backend-lsp-completion-trigger-characters nil)
-    (setq-local acm-backend-lsp-completion-position nil)
-    (setq-local acm-backend-lsp-filepath (lsp-bridge-get-buffer-truename))
-    (setq-local acm-backend-lsp-items (make-hash-table :test 'equal))
-    (setq-local acm-backend-lsp-server-names nil)
+      (setq-local acm-backend-lsp-completion-trigger-characters nil)
+      (setq-local acm-backend-lsp-completion-position nil)
+      (setq-local acm-backend-lsp-filepath (lsp-bridge-get-buffer-truename))
+      (setq-local acm-backend-lsp-items (make-hash-table :test 'equal))
+      (setq-local acm-backend-lsp-server-names nil)
 
-    (when lsp-bridge-enable-signature-help
-      (acm-run-idle-func lsp-bridge-signature-help-timer lsp-bridge-signature-help-fetch-idle 'lsp-bridge-signature-help-fetch))
-    (when lsp-bridge-enable-search-words
-      (acm-run-idle-func lsp-bridge-search-words-timer lsp-bridge-search-words-rebuild-cache-idle 'lsp-bridge-search-words-rebuild-cache))
-    (when lsp-bridge-enable-auto-format-code
-      (acm-run-idle-func lsp-bridge-auto-format-code-timer lsp-bridge-auto-format-code-idle 'lsp-bridge-auto-format-code)))
+      (when lsp-bridge-enable-signature-help
+        (acm-run-idle-func lsp-bridge-signature-help-timer lsp-bridge-signature-help-fetch-idle 'lsp-bridge-signature-help-fetch))
+      (when lsp-bridge-enable-auto-format-code
+        (acm-run-idle-func lsp-bridge-auto-format-code-timer lsp-bridge-auto-format-code-idle 'lsp-bridge-auto-format-code)))
 
-  (dolist (hook lsp-bridge--internal-hooks)
-    (apply #'add-hook hook))
+    (dolist (hook lsp-bridge--internal-hooks)
+      (apply #'add-hook hook))
 
-  (advice-add #'acm-hide :after #'lsp-bridge--completion-hide-advisor)
+    (advice-add #'acm-hide :after #'lsp-bridge--completion-hide-advisor)
 
-  ;; Flag `lsp-bridge-is-starting' make sure only call `lsp-bridge-start-process' once.
-  (unless lsp-bridge-is-starting
-    (lsp-bridge-start-process)))
+    ;; Flag `lsp-bridge-is-starting' make sure only call `lsp-bridge-start-process' once.
+    (unless lsp-bridge-is-starting
+      (lsp-bridge-start-process))))
 
 (defun lsp-bridge--disable ()
   "Disable LSP Bridge mode."
@@ -1871,7 +1929,13 @@ SymbolKind (defined in the LSP)."
          ;; Tempel not active.
          (or (not (boundp 'tempel--active))
              (not tempel--active)))
-    (lsp-bridge-call-file-api "formatting" (symbol-value (lsp-bridge--get-indent-width major-mode)))))
+    (let ((indent (symbol-value (lsp-bridge--get-indent-width major-mode))))
+      (lsp-bridge-call-file-api "formatting"
+                                ;; Sometimes `c-basic-offset' return string `set-from-style', make some lsp server broken, such as, gopls,
+                                ;; so we need convert indent to integer `4' to make sure code format works expectantly.
+                                (if (eq indent 'set-from-style)
+                                    4
+                                  indent)))))
 
 (defun lsp-bridge-format--update (filename edits)
   ;; We need set `inhibit-modification-hooks' to t to avoid GC freeze Emacs.
@@ -2027,34 +2091,31 @@ SymbolKind (defined in the LSP)."
 
 (defun lsp-bridge-codeium-complete ()
   (interactive)
-  (let ((before-text (buffer-substring-no-properties (point-min) (point)))
-        (all-text (buffer-substring-no-properties (point-min) (point-max))))
+  (let ((all-text (buffer-substring-no-properties (point-min) (point-max)))
+        (language
+         ;; https://github.com/Exafunction/codeium.el/blob/0240805690c685de9b75c953af2867b6fcc61208/codeium.el#L306
+         (let ((mode major-mode))
+           (while (not (alist-get mode acm-backend-codeium-language-alist))
+             (setq mode (get mode 'derived-mode-parent)))
+           (alist-get mode acm-backend-codeium-language-alist))))
     (if (lsp-bridge-is-remote-file)
         (lsp-bridge-remote-send-func-request "codeium_complete"
                                              (list
-                                              (length (encode-coding-string before-text 'utf-8))
+                                              (1- (point))
                                               (symbol-name major-mode)
                                               tab-width
                                               all-text
-                                              acm-backend-codeium-candidates-number
                                               (not indent-tabs-mode)
-                                              ;; https://github.com/Exafunction/codeium.el/blob/0240805690c685de9b75c953af2867b6fcc61208/codeium.el#L306
-                                              (let ((mode major-mode))
-                                                (while (not (alist-get mode acm-backend-codeium-language-alist))
-                                                  (setq mode (get mode 'derived-mode-parent)))
-                                                (alist-get mode acm-backend-codeium-language-alist))))
+                                              (acm-get-input-prefix)
+                                              language))
       (lsp-bridge-call-async "codeium_complete"
-                             (length (encode-coding-string before-text 'utf-8))
+                             (1- (point))
                              (symbol-name major-mode)
                              tab-width
                              all-text
-                             acm-backend-codeium-candidates-number
                              (not indent-tabs-mode)
-                             ;; https://github.com/Exafunction/codeium.el/blob/0240805690c685de9b75c953af2867b6fcc61208/codeium.el#L306
-                             (let ((mode major-mode))
-                               (while (not (alist-get mode acm-backend-codeium-language-alist))
-                                 (setq mode (get mode 'derived-mode-parent)))
-                               (alist-get mode acm-backend-codeium-language-alist))))))
+                             (acm-get-input-prefix)
+                             language))))
 
 (defun lsp-bridge-search-backend--record-items (backend-name items)
   (pcase backend-name
@@ -2115,7 +2176,10 @@ SymbolKind (defined in the LSP)."
 
 (defun lsp-bridge-open-remote-file ()
   (interactive)
-  (let* ((ip-file (concat (lsp-bridge--user-emacs-directory)
+  (unless lsp-bridge-is-starting
+    (lsp-bridge-start-process))
+
+  (let* ((ip-file (concat (lsp-bridge--user-emacs-directory-func)
                           (file-name-as-directory "lsp-bridge")
                           (file-name-as-directory "remote_file")
                           "ip.txt"))
@@ -2156,6 +2220,10 @@ SymbolKind (defined in the LSP)."
     (setq-local lsp-bridge-remote-file-flag t)
     (setq-local lsp-bridge-remote-file-host server)
     (setq-local lsp-bridge-remote-file-path path)
+
+    ;; Always enable lsp-bridge for remote file.
+    ;; Remote file can always edit and update content even some file haven't corresponding lsp server, such as *.txt
+    (lsp-bridge-mode 1)
     ))
 
 (defun lsp-bridge-remote-kill-buffer ()

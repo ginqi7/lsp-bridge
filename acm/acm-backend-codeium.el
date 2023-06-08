@@ -4,6 +4,8 @@
 
 ;;; Code:
 
+(require 'array)
+
 (defgroup acm-backend-codeium nil
   "ACM codeium support."
   :group 'acm)
@@ -12,6 +14,16 @@
   "Enable codeium support."
   :type 'boolean
   :group 'acm-backend-codeium)
+
+(defcustom acm-backend-codeium-candidate-min-length 0
+  "Minimal length of candidate."
+  :type 'integer
+  :group 'acm-backend-codeium)
+
+(defcustom acm-backend-codeium-candidate-max-length 50
+  "Maximal length of candidate."
+  :type 'integer
+  :group 'acm-backend-lsp)
 
 (defcustom acm-backend-codeium-candidates-number 10
   "Maximal number of codeium candidate of menu."
@@ -28,8 +40,8 @@
   :type 'integer
   :group 'acm-backend-codeium)
 
-(defcustom acm-backend-codeium-api-key ""
-  "Codeium api key."
+(defcustom acm-backend-codeium-api-key-path (expand-file-name (concat user-emacs-directory (file-name-as-directory "lsp-bridge") "codeium_api_key.txt"))
+  "The path to store Codeium API Key."
   :type 'string
   :group 'acm-backend-codeium)
 
@@ -138,16 +150,26 @@
 	(fsharp-mode . 59)
 	(lisp-data-mode . 60)))
 
-(defun acm-backend-codeium-candidates (_)
-  (when acm-backend-codeium-items
+(defun acm-backend-codeium-candidates (keyword)
+  (when (and acm-backend-codeium-items
+             (>= (length keyword) acm-backend-codeium-candidate-min-length))
     acm-backend-codeium-items))
 
-(defun acm-backend-codeium-candidate-expand (candidate-info _)
-  (delete-region (- (point) (length (plist-get candidate-info :old_prefix))) (point))
-  (insert (plist-get candidate-info :label))
+(defun acm-backend-codeium-candidate-expand (candidate-info bound-start &optional preview)
+  ;; We need replace whole area with codeium label.
+  (let ((end-position (line-end-position)))
+    (forward-line (- (plist-get candidate-info :line) (count-lines (point-min) (line-beginning-position))))
+    (if preview
+        (acm-preview-create-overlay (point) end-position (plist-get candidate-info :label))
+      (delete-region (point) end-position)
+      (insert (plist-get candidate-info :label))
+      (when acm-backend-codeium-accept
+        (lsp-bridge-call-async
+         "codeium_completion_accept" (plist-get candidate-info :id))))))
 
-  (when acm-backend-codeium-accept
-    (lsp-bridge-call-async "codeium_completion_accept" (plist-get candidate-info :id))))
+
+(defun acm-backend-codeium-candidate-doc (candidate)
+  (plist-get candidate :documentation))
 
 (defun acm-backend-codeium-clean ()
   (setq-local acm-backend-codeium-items nil))

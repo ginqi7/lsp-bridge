@@ -28,28 +28,49 @@ class Completion(Handler):
         self.position = position
         self.prefix = prefix
         return dict(position=position, context=context)
+
+    def parse_sort_value(self, sort_text):
+        if sort_text == "":
+            return sort_text
+        else:
+            sort_text = ''.join(c for c in sort_text if c.isdigit() or c == '.')
+
+            if sort_text.endswith("."):
+                sort_text = sort_text[:-1]
+
+            return sort_text
     
     def compare_candidates(self, x, y):
         prefix = self.prefix.lower()
         x_label : str = x["label"].lower()
         y_label : str = y["label"].lower()
-        x_sort_text : str = x["sortText"]
-        y_sort_text : str = y["sortText"]
+        x_icon : str = x["icon"]
+        y_icon : str = y["icon"]
+        x_sort_text : str = self.parse_sort_value(x["sortText"])
+        y_sort_text : str = self.parse_sort_value(y["sortText"])
         x_include_prefix = x_label.startswith(prefix)
         y_include_prefix = y_label.startswith(prefix)
-        
+        x_method_name = x_label.split('(')[0]
+        y_method_name = y_label.split('(')[0]
+
         # 1. Sort file by sortText, sortText is provided by LSP server.
-        if x_sort_text != "" and y_sort_text != "":
+        if x_sort_text != "" and y_sort_text != "" and x_sort_text != y_sort_text:
             if x_sort_text < y_sort_text:
                 return -1
-            else:
+            elif x_sort_text > y_sort_text:
                 return 1
         # 2. Sort by prefix.
         elif x_include_prefix and not y_include_prefix:
             return -1
         elif y_include_prefix and not x_include_prefix:
             return 1
-        # 3. Sort by length.
+        # 3. Sort by method name if both candidates are method.
+        elif x_icon == "method" and y_icon == "method" and x_method_name != y_method_name:
+            if x_method_name < y_method_name:
+                return -1
+            elif x_method_name > y_method_name:
+                return 1
+        # 4. Sort by length.
         elif len(x_label) < len(y_label):
             return -1
         elif len(x_label) > len(y_label):
@@ -136,13 +157,18 @@ class Completion(Handler):
 
             completion_candidates = sorted(completion_candidates, key=cmp_to_key(self.compare_candidates))
 
-        log_time("Recv completion candidates number {} from '{}' for file {}".format(
+        log_time("Got completion candidates ({}) from '{}' for file {}".format(
             len(completion_candidates),
             self.method_server_name,
             os.path.basename(self.file_action.filepath)))
 
         # Avoid returning too many items to cause Emacs to do GC operation.
         completion_candidates = completion_candidates[:min(len(completion_candidates), self.file_action.completion_items_limit)]
+
+        log_time("Record completion candidates ({}) from '{}' for file {}".format(
+            len(completion_candidates),
+            self.method_server_name,
+            os.path.basename(self.file_action.filepath)))
 
         eval_in_emacs("lsp-bridge-completion--record-items",
                       self.file_action.filepath,

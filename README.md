@@ -17,29 +17,28 @@ Using Python multithreading techniques, lsp-bridge builds a high-speed cache bet
 
 ## Installation
 
-1. Install Emacs version 28 or above.
-2. Install Python dependencies: epc, orjson, sexpdata, six, paramiko. Please choose one of the following ways to install Python dependencies:
-- PyPy (We strongly recommend using PyPy instead of CPython to get a 5x performance boost):
+1. Install Emacs 28 or higher version
+2. Install Python dependencies: epc, orjson, sexpdata, six, paramiko, please choose one of the following methods to install Python dependencies
+- PyPy (On Linux, we strongly recommend using PyPy instead of CPython for a 5x performance boost):
 `pypy3 -m pip install epc sexpdata six paramiko`
-- CPython:
-`pip3 install epc orjson sexpdata six paramiko` (orjson is optional. It is based on Rust and provides faster JSON parsing performance)
+- CPython: (Windows and MacOS users please use CPython)
+`pip3 install epc orjson sexpdata six paramiko` (orjson is optional, orjson is based on Rust, providing faster JSON parsing performance)
 3. Install Elisp dependencies:
 
 - [posframe](https://github.com/tumashu/posframe)
 - [markdown-mode](https://github.com/jrblevin/markdown-mode)
 - [yasnippet](https://github.com/joaotavora/yasnippet)
-- [acm-terminal](https://github.com/twlz0ne/acm-terminal) (optional, only for terminal user)
 
 4. Download this repository using git clone, and replace the load-path path in the configuration below.
 5. Add the following code to your configuration file ~/.emacs:
 
 ```elisp
-(add-to-list 'load-path "<path-to-lsp-bridge>")
+(add-to-list ‘load-path "<path-to-lsp-bridge>")
 
-(require 'yasnippet)
+(require ’yasnippet)
 (yas-global-mode 1)
 
-(require 'lsp-bridge)
+(require ‘lsp-bridge)
 (global-lsp-bridge-mode)
 ```
 
@@ -74,30 +73,33 @@ Once the remote file is opened, `lsp-bridge` will automatically display the code
 
 If the completion menu does not appear, log in to the remote server and check the terminal output of `lsp_bridge.py`. Generally, incomplete installation of the service-side LSP server is the cause.
 
+lsp-bridge first looks for the content of the first *.pub file in the `~/.ssh` directory as the public key credential for logging into the remote server. If public key login fails, the user will be prompted to enter the login password. lsp-bridge does not store the server login password in a file. To avoid repeatedly entering the password, it is recommended that you use the public key method to log in to the remote server.
+
 ## Keymap
 
-| Key          | Command                   | Description                                                                  |
-| :----------- | :------------------------ | :--------------------------------------------------------------------------- |
-| Alt + n      | acm-select-next           | Select next candidate                                                        |
-| Down         | acm-select-next           | Select next candidate                                                        |
-| Alt + p      | acm-select-prev           | Select previous candidate                                                    |
-| Up           | acm-select-prev           | Select previous candidate                                                    |
-| Alt + ,      | acm-select-last           | Select last candidate                                                        |
-| Alt + .      | acm-select-first          | Select first candidate                                                       |
-| Ctrl + v     | acm-select-next-page      | Select next page candidate                                                   |
-| Alt + v      | acm-select-prev-page      | Select previous page candidate                                               |
-| Ctrl + m     | acm-complete              | Complete completion                                                          |
-| Return       | acm-complete              | Complete completion                                                          |
-| Tab          | acm-complete              | Complete completion                                                          |
-| Alt + h      | acm-complete              | Complete completion                                                          |
-| Alt + H      | acm-insert-common         | Insert common part of candidates                                             |
-| Alt + u      | acm-filter                | Filter candidates with overlay string                                        |
-| Alt + d      | acm-doc-toggle            | Enable or disable candidate documentation                                    |
-| Alt + j      | acm-doc-scroll-up         | Scroll up candidate documentation                                            |
-| Alt + k      | acm-doc-scroll-down       | Scroll down candidate documentation                                          |
-| Alt + l      | acm-hide                  | Hide completion menu                                                         |
-| Ctrl + g     | acm-hide                  | Hide completion menu                                                         |
-| Alt + Number | acm-complete-quick-access | Selecting candidate quickly, you need enable `acm-enable-quick-access` first |
+| Key          | Command                   | Description                                                                                                                   |
+|:-------------|:--------------------------|:------------------------------------------------------------------------------------------------------------------------------|
+| Alt + n      | acm-select-next           | Select next candidate                                                                                                         |
+| Down         | acm-select-next           | Select next candidate                                                                                                         |
+| Alt + p      | acm-select-prev           | Select previous candidate                                                                                                     |
+| Up           | acm-select-prev           | Select previous candidate                                                                                                     |
+| Alt + ,      | acm-select-last           | Select last candidate                                                                                                         |
+| Alt + .      | acm-select-first          | Select first candidate                                                                                                        |
+| Ctrl + v     | acm-select-next-page      | Select next page candidate                                                                                                    |
+| Alt + v      | acm-select-prev-page      | Select previous page candidate                                                                                                |
+| Ctrl + m     | acm-complete              | Complete completion                                                                                                           |
+| Return       | acm-complete              | Complete completion                                                                                                           |
+| Tab          | acm-complete              | Complete completion                                                                                                           |
+| Alt + h      | acm-complete              | Complete completion                                                                                                           |
+| Alt + H      | acm-insert-common         | Insert common part of candidates                                                                                              |
+| Alt + u      | acm-filter                | Perform secondary filtering on candidate words, improving the selection efficiency of candidate words                         |
+| Alt + d      | acm-doc-toggle            | Enable or disable candidate documentation                                                                                     |
+| Alt + j      | acm-doc-scroll-up         | Scroll up candidate documentation                                                                                             |
+| Alt + k      | acm-doc-scroll-down       | Scroll down candidate documentation                                                                                           |
+| Alt + l      | acm-hide                  | Hide completion menu                                                                                                          |
+| Ctrl + g     | acm-hide                  | Hide completion menu                                                                                                          |
+| Alt + Number | acm-complete-quick-access | Selecting candidate quickly, need to enable `acm-enable-quick-access` first                                                   |
+| Number       | acm-complete-quick-access | Selecting candidate (even more) quickly, need both `acm-enable-quick-access` and `acm-quick-access-use-number-select` enabled |
 
 ## Commands
 
@@ -124,9 +126,6 @@ If the completion menu does not appear, log in to the remote server and check th
 - `lsp-bridge-popup-complete-menu`: Manually popup the completion menu, you only need this command when turn on option `lsp-bride-complete-manually`
 - `lsp-bridge-restart-process`: restart lsp-bridge process (only used for development)
 - `lsp-bridge-toggle-sdcv-helper`: Switch dictionary completion assistant
-- `acm-insert-common`: insert common prefix of candidates
-- `acm-doc-scroll-up`: API document window scroll up
-- `acm-doc-scroll-down`: API document window scroll down
 
 ## LSP server options
 
@@ -140,10 +139,11 @@ If the completion menu does not appear, log in to the remote server and check th
 
 ## Options
 
-- `lsp-bridge-python-command`: The path of the python command, if you use `conda`, you may customize this option. Windows platform using `python.exe` rather than `python3`, if lsp-bridge can't work, try set to `python3`
+- `lsp-bridge-python-command`: The path of the python command, if you use `conda`, you may customize this option. Windows platform using `python.exe` rather than `python3`, if lsp-bridge can’t work, try set to `python3`
 - `lsp-bridge-complete-manually`: Only popup completion menu when user call `lsp-bridge-popup-complete-menu` command, default is nil
 - `lsp-bridge-get-workspace-folder`: You need to put multiple project in a `workspace` directory in Java before you can jump function defintion normally. This function can be customized, the function input is the project path and returns the `workspace` directory corresponding
 - `lsp-bridge-org-babel-lang-list`: list of language to support org-mode code block completion, nil enable all languages, default is nil
+- `lsp-bridge-enable-completion-in-string`: Enable completion pop-up within strings, default is off
 - `lsp-bridge-enable-diagnostics`: code diagnostic, enable by default
 - `lsp-bridge-enable-hover-diagnostic`: show diagnostic tooltip when cursor hover diagnostic place, disable by default
 - `lsp-bridge-enable-search-words`: index the word of the file, enable by default
@@ -157,32 +157,39 @@ If the completion menu does not appear, log in to the remote server and check th
 - `lsp-bridge-signature-show-function`: The function used for displaying signature info, default show message in minibuffer, set `lsp-bridge-signature-posframe` to show signature info in frame
 - `lsp-bridge-completion-popup-predicates`: the predicate function for completion menu, completion menu popup after all the functions pass
 - `lsp-bridge-completion-stop-commands`: completion menu will not popup if these commands are executed
-- `lsp-bridge-completion-hide-characters`: completion menu will not popup when cursor after those characters
+- `lsp-bridge-completion-hide-characters`: The default value is `‘(":" ";" "(" ")" "[" "]" "{" "}" ", " "\"")`, the completion menu does not pop up when the cursor is behind these characters. You can customize this option to remove this restriction, or call the `lsp-bridge-popup-complete-menu` command to force the menu to pop up
 - `lsp-bridge-user-langserver-dir`: the dir where user place langserver configuration file, if the configuration file name in the dir is the same as that in [lsp-bridge/langserver](https://github.com/manateelazycat/lsp-bridge/tree/master/langserver) , lsp-bridge will use the configuration file in this dir
 - `lsp-bridge-user-multiserver-dir`: the dir where user place multiserver configuration file, if the configuration file name in the dir is the same as that in [lsp-bridge/multiserver](https://github.com/manateelazycat/lsp-bridge/tree/master/multiserver) , lsp-bridge will use the configuration file in this dir
 - `lsp-bridge-symbols-enable-which-func`: Using lsp backend for `which-func`, disable by default
-- `lsp-bridge-enable-org-babel`: Using lsp backend for org babel, disable by default
+- `lsp-bridge-enable-org-babel`: Use lsp completion in org babel, disable by default, if unable to complete, please make sure the string after begin_src exists in the `org-src-lang-modes` variable
 - `acm-frame-background-dark-color`: Menu background color in dark theme
 - `acm-frame-background-light-color`: Menu background color in light theme
 - `acm-markdown-render-font-height`: The font height of function documentation, default is 130
 - `acm-enable-doc`: Whether the complete menu display the help document
-- `acm-enable-doc-markdown-render`: Richly render Markdown for completion popups, you can choose `'async`, `t` or `nil`. When set to `'async`, styles are applied asynchronously, choose `t`, styles are applied synchronously and will slow down the completion speed, default is `async`
-- `acm-enable-icon`: Whether the complete menu shows the icon, macOS users need to add option `--with-rsvg` to the brew command to install emacs to display SVG icon
-- `acm-enable-tabnine`: Enable tabnine support， enable by default，when enable need execute `lsp-bridge-install-tabnine` command to install TabNine, and it can be used. TabNine will consume huge CPUs, causing your entire computer to be slow. If the computer performance is not good, it is not recommended to enable this option
+- `acm-enable-doc-markdown-render`: Richly render Markdown for completion popups, you can choose `’async`, `t` or `nil`. When set to `‘async`, styles are applied asynchronously, choose `t`, styles are applied synchronously and will slow down the completion speed, default is `async`
+- `acm-enable-icon`: Whether the completion menu displays icons (Many macOS users have reported that emacs-plus28 cannot display icons properly, showing colored squares instead. There are two ways to solve this: install Emacs Mac Port or add the `--with-rsvg` option to the brew command when compiling Emacs yourself)
+- `acm-enable-tabnine`: Enable tabnine support， enable by default， when enable need execute `lsp-bridge-install-tabnine` command to install TabNine, and it can be used. TabNine will consume huge CPUs, causing your entire computer to be slow. If the computer performance is not good, it is not recommended to enable this option
 - `acm-enable-codeium`: Enable Codeium support, when enable need execute `lsp-bridge-install-update-codeium` command to install Codeium, then execute `lsp-bridge-codeium-auth` command to get auth token and execute `lsp-bridge-codeium-input-auth-token` command to get API Key, and it can be used.
 - `acm-enable-search-file-words`: Whether the complete menu display the word of the file, enable by default
-- `acm-enable-quick-access`: Whether the index is displayed behind the icon, you can quickly select the candidate through Alt + Number, disable by default
+- `acm-enable-quick-access`: Whether to display an index after the icon, quickly select candidate words using Alt + Number, default is off
+- `acm-quick-access-use-number-select`: Whether to use number keys for quick selection of candidate words, default is off, turning on this option may sometimes interfere with number input or accidentally select candidate words
 - `acm-enable-yas`: yasnippet completion, enable by default
 - `acm-enable-citre`: Integration with [citre(ctags)](https://github.com/universal-ctags/citre). Enable this to add citre (ctags) backend (disabled by default)
 - `acm-doc-frame-max-lines`: Max line number of help documentation, default is 20
 - `acm-candidate-match-function`: The complete menu matching algorithm, the algorithm prefix of orderless-\* needs to be installed additional [orderless](https://github.com/oantolin/orderless)
 - `acm-completion-backend-merge-order`: Display order of completion backends. By default, multiple completion backends are merged in the order of LSP, Templates, and TabNine, and then the remaining templates and LSP completion options are displayed. You can adjust the order of completion back-end merging according to your needs
-- `acm-backend-lsp-candidate-min-length`: The minimum characters to trigger completion, default is 0
+- `acm-backend-lsp-candidate-min-length`: The minimum characters to trigger lsp completion, default is 0
+- `acm-backend-elisp-candidate-min-length`: The minimum characters to trigger elisp completion, default is 0
+- `acm-backend-yas-candidate-min-length`: The minimum characters to trigger yasnippet completion, default is 0
+- `acm-backend-search-file-words-candidate-min-length`: The minimum characters to trigger search file words completion, default is 0
+- `acm-backend-search-file-words-max-number`: Search Words completion candidate limit, default is 10
+- `acm-backend-codeium-candidate-min-length`: The minimum characters to trigger codeium completion, default is 0
 - `acm-backend-lsp-enable-auto-import`: automatic insert import code, enable by default
 - `acm-backend-lsp-candidate-max-length`: Maximum length of LSP candidate, some language, such as Java, argument list is very long, you can increase the value of this option to see clear argument list
-- `acm-backend-yas-candidates-number`: yasnippet display number，2 by default
+- `acm-backend-yas-candidates-number`: yasnippet display number， 2 by default
 - `acm-backend-citre-keyword-complete`: Completion is performed according to the keywords of each mode defined by `acm-backend-citre-keywords-alist`, which takes effect only after citre is enabled.
 - `acm-backend-search-sdcv-words-dictionary`: StarDict dictionary for word completion, default is `kdic-ec-11w`, you can replace it with StarDict dictionary path, example, if you have dictionary `/usr/share/stardict/dic/stardict-oxford-gb-formated-2.4.2/oxford-gb-formated.ifo`, you need set this value to `/usr/share/stardict/dic/stardict-oxford-gb-formated-2.4.2/oxford-gb-formated`, not include `.ifo` extension.
+- `acm-enable-preview`: enable Tab-and-Go completion, commands like acm-select-* will select and preview other candidate and further input will then commit this candidate, disable by default
 
 ## Customize language server configuration
 
@@ -192,18 +199,18 @@ In most cases, you can customize the server configuration according to the follo
 
 1. `lsp-bridge-get-single-lang-server-by-project`: A user-defined function that takes project-path and file-path as input parameters and returns the corresponding LSP server string. You can query the names of all LSP servers in the lsp-bridge-single-lang-server-mode-list list. By default, this function returns nil.
 2. `lsp-bridge-single-lang-server-extension-list`: Returns the server based on the file extension, for example, when opening a \*.wxml file, we will use the wxml LSP server for completion.
-3. `lsp-bridge-single-lang-server-mode-list`: Returns the corresponding server based on Emacs's major-mode.
+3. `lsp-bridge-single-lang-server-mode-list`: Returns the corresponding server based on Emacs’s major-mode.
 
 If you are writing JavaScript code, you may need to customize multiple server configurations:
 
 1. `lsp-bridge-get-multi-lang-server-by-project`: A user-defined function that takes project-path and file-path as input parameters and returns the multiple server configuration names. You can search for them in the subdirectory [lsp-bridge/multiserver](https://github.com/manateelazycat/lsp-bridge/tree/master/multiserver).
 2. `lsp-bridge-multi-lang-server-extension-list`: Returns multiple server configuration names based on the file extension. For example, when opening a \*.vue file, we will use volar_emmet to simultaneously utilize volar and emmet-ls for completion.
-3. `lsp-bridge-multi-lang-server-mode-list`: Returns the corresponding multiple server configuration names based on Emacs's major-mode.
+3. `lsp-bridge-multi-lang-server-mode-list`: Returns the corresponding multiple server configuration names based on Emacs‘s major-mode.
 
 For example, we can enable the Deno LSP server for Deno scripts with the following configuration:
 
 ```elisp
-(setq lsp-bridge-get-single-lang-server-by-project
+(setq lsp-bridge-get-multi-lang-server-by-project
       (lambda (project-path filepath)
         ;; If typescript file include deno.land url, then use Deno LSP server.
         (save-excursion
@@ -248,15 +255,15 @@ You need to install the LSP server corresponding to each programming language, t
 |:---------------------------------------------------------------------------------------------------|:----------------------------------------|:-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
 | [clangd](https://github.com/clangd/clangd)                                                         | C, C++, Object-C                        | need you config compile_commands.json first                                                                                                                                                                                                                        |
 | [ccls](https://github.com/MaskRay/ccls)                                                            | C, C++, Object-C                        | `lsp-bridge-c-lsp-server` set to `ccls`, you need to configure compile_commands.json first                                                                                                                                                                         |
-| [pyright](https://github.com/microsoft/pyright)                                                    | Python                                  | `lsp-bridge-python-lsp-server` set to `pyright`, `pyright-background-analysis` is faster sometimes, but it can't response diagnostic informations                                                                                                                  |
+| [pyright](https://github.com/microsoft/pyright)                                                    | Python                                  | `lsp-bridge-python-lsp-server` set to `pyright`, `pyright-background-analysis` is faster sometimes, but it can’t response diagnostic informations                                                                                                                  |
 | [jedi](https://github.com/pappasam/jedi-language-server)                                           | Python                                  | `lsp-bridge-python-lsp-server` set to `jedi`                                                                                                                                                                                                                       |
 | [python-ms](https://github.com/microsoft/python-language-server)                                   | Python                                  | Legacy language server for Python2                                                                                                                                                                                                                                 |
 | [pylsp](https://github.com/python-lsp/python-lsp-server)                                           | Python                                  | `lsp-bridge-python-lsp-server` set to `pylsp`                                                                                                                                                                                                                      |
-| [ruff](https://github.com/charliermarsh/ruff-lsp)                                                  | Python                                  | `pip install ruff-lsp`,`lsp-bridge-python-lsp-server` is set to `ruff`, which only has the function of linter. If you need to complete the functions, install other Python language servers, and set the `lsp-bridge-python-multi-lsp-server` to `[LSP NAME]_ruff` |
+| [ruff](https://github.com/charliermarsh/ruff-lsp)                                                  | Python                                  | `pip install ruff-lsp`, `lsp-bridge-python-lsp-server` is set to `ruff`, which only has the function of linter. If you need to complete the functions, install other Python language servers, and set the `lsp-bridge-python-multi-lsp-server` to `[LSP NAME]_ruff` |
 | [solargraph](https://github.com/castwide/solargraph)                                               | Ruby                                    |                                                                                                                                                                                                                                                                    |
 | [rust-analyzer](https://github.com/rust-lang/rust-analyzer)                                        | Rust                                    |                                                                                                                                                                                                                                                                    |
 | [elixirLS](https://github.com/elixir-lsp/elixir-ls)                                                | Elixir                                  | Please ensure that the `elixir-ls` release directory is in your system PATH at first                                                                                                                                                                               |
-| [lexical](https://github.com/lexical-lsp/lexical)                                                  | Elixir                                  | Kindly make sure that the `lexical` release directory is included in your system's PATH and that `lexical` has been compiled using the same version of Elixir/Erlang as your project.                                                                              |
+| [lexical](https://github.com/lexical-lsp/lexical)                                                  | Elixir                                  | Kindly make sure that the `lexical` release directory is included in your system‘s PATH and that `lexical` has been compiled using the same version of Elixir/Erlang as your project.                                                                              |
 | [gopls](https://github.com/golang/tools/tree/master/gopls)                                         | Go                                      | Make sure install [go-mode](https://github.com/dominikh/go-mode.el) and gopls in PATH, please do `ln -s ~/go/bin/gopls ~/.local/bin`, and do `go mod init` first                                                                                                   |
 | [hls](https://github.com/haskell/haskell-language-server)                                          | Haskell                                 |                                                                                                                                                                                                                                                                    |
 | [dart-analysis-server](https://github.com/dart-lang/sdk/tree/master/pkg/analysis_server)           | Dart                                    |                                                                                                                                                                                                                                                                    |
@@ -265,7 +272,7 @@ You need to install the LSP server corresponding to each programming language, t
 | [ocamllsp](https://github.com/ocaml/ocaml-lsp)                                                     | Ocaml                                   |                                                                                                                                                                                                                                                                    |
 | [erlang-ls](https://github.com/erlang-ls/erlang_ls)                                                | Erlang                                  |                                                                                                                                                                                                                                                                    |
 | [texlab](https://github.com/latex-lsp/texlab)                                                      | Latex                                   |                                                                                                                                                                                                                                                                    |
-| [eclipse.jdt.ls](https://projects.eclipse.org/projects/eclipse.jdt.ls)                             | Java                                    | Please ensure that `org.eclipse.jdt.ls.product/target/repository/bin` is in your system PATH at first                                                                                                                                                              |
+| [eclipse.jdt.ls](https://projects.eclipse.org/projects/eclipse.jdt.ls)                             | Java                                    | Please ensure that `org.eclipse.jdt.ls.product/target/repository/bin` is in your system PATH at first, please see the details at [Wiki](https://github.com/manateelazycat/lsp-bridge/wiki/Eclipse-JDT-Language-Server)                                                                                          |
 | [clojure-lsp](https://github.com/clojure-lsp/clojure-lsp)                                          | Clojure                                 | If you use `homebrew` , please ensure install `clojure-lsp/brew/clojure-lsp-native` [clojure-lsp-native](https://clojure-lsp.io/installation/#homebrew-macos-and-linux)                                                                                            |
 | [bash-language-server](https://github.com/bash-lsp/bash-language-server)                           | Bash                                    |                                                                                                                                                                                                                                                                    |
 | [volar](https://github.com/johnsoncodehk/volar)                                                    | Vue                                     | `npm install -g typescript @volar/vue-language-server`                                                                                                                                                                                                             |
@@ -297,7 +304,7 @@ You need to install the LSP server corresponding to each programming language, t
 | [omnisharp-mono](https://github.com/OmniSharp/omnisharp-roslyn)                                    | C#                                      | OmniSharp is a .NET development platform based on Roslyn workspaces. use `M-x lsp-bridge-install-omnisharp` to install it. `lsp-bridge-csharp-lsp-server` set to `omnisharp-mono`                                                                                  |
 | [omnisharp-dotnet](https://github.com/OmniSharp/omnisharp-roslyn)                                  | C#                                      | OmniSharp is a .NET development platform based on Roslyn workspaces. use `M-x lsp-bridge-install-omnisharp` to install it. `lsp-bridge-csharp-lsp-server` set to `omnisharp-dotnet` (6.0)                                                                          |
 | [deno](https://deno.land)                                                                          | Deno                                    | Deno runtime use TypeScript as source code, you need customize option `lsp-bridge-get-single-lang-server-by-project` that return result "deno" when `project-path` match Deno project.                                                                             |
-| [ansible-language-server](https://github.com/ansible/ansible-language-server)                      | Ansible                                 | Ansible uses YAML as source code, you'll need to customize `lsp-bridge-get-single-lang-server-by-project` to return "ansible-language-server".                                                                                                                     |
+| [ansible-language-server](https://github.com/ansible/ansible-language-server)                      | Ansible                                 | Ansible uses YAML as source code, you’ll need to customize `lsp-bridge-get-single-lang-server-by-project` to return "ansible-language-server".                                                                                                                     |
 | [astro](https://github.com/withastro/language-tools/tree/main/packages/language-server)            | Astro                                   | `npm i -g @astrojs/language-server`                                                                                                                                                                                                                                |
 | [qmlls](https://github.com/qt/qtdeclarative/tree/dev/tools/qmlls)                                  | QML                                     | The `qmlls` binary should be part of the normal Qt packages since Qt 6.3.0 Ensure that the directory of `qmlls` binary file is in PATH                                                                                                                             |
 | [kotlin-language-server](https://github.com/fwcd/kotlin-language-server)                           | Kotlin                                  |                                                                                                                                                                                                                                                                    |
@@ -305,6 +312,7 @@ You need to install the LSP server corresponding to each programming language, t
 | [julials](https://github.com/julia-vscode/LanguageServer.jl)                                       | Julia                                   |                                                                                                                                                                                                                                                                    |
 | [typst-lsp](https://github.com/nvarner/typst-lsp)                                                  | Typst                                   |                                                                                                                                                                                                                                                                    |
 | [verible](https://github.com/chipsalliance/verible)                                                | Verilog                                 |                                                                                                                                                                                                                                                                    |
+| [move-analyzer](https://github.com/move-language/move)                                             | Move                                    | The `move-analyzer` is included in the move language repository                                                                                                                                                                                                    |
 
 ## Join development
 
@@ -320,7 +328,7 @@ The following is the directory structure of the lsp-bridge project:
 |:------------------------------------|:-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
 | lsp-bridge.el                       | The Elisp main logic part of lsp-bridge provides custom options and Elisp functions for python sub-processes to call, such as code jumps, renaming, etc.                                                     |
 | lsp-bridge-epc.el                   | The code that communicates with the lsp-bridge python sub-process, which mainly implements Elisp IPC to interface with Python EPC, implementing data serialization, sending, receiving, and deserialization. |
-| lsp-bridge-call-hierarchy.el        | Displays the code's call order relationship in a pop-up frame.                                                                                                                                               |
+| lsp-bridge-call-hierarchy.el        | Displays the code‘s call order relationship in a pop-up frame.                                                                                                                                               |
 | lsp-bridge-code-action.el           | Code repair related code.                                                                                                                                                                                    |
 | lsp-bridge-diagnostic.el            | Diagnostic information related code.                                                                                                                                                                         |
 | lsp-bridge-ref.el                   | A code reference viewing framework that provides reference viewing, batch renaming, and reference result regular filtering. The core code is forked from color-rg.el.                                        |
@@ -338,10 +346,10 @@ The following is the directory structure of the lsp-bridge project:
 | core/codeium.py                     | The backend searches and completes with Codeium.                                                                                                                                                             |
 | core/search_file_words.py           | Asynchronous search backend for file words.                                                                                                                                                                  |
 | core/search_paths.py                | Asynchronous search backend for file paths.                                                                                                                                                                  |
-| core/search_sdcv_words.py           | English word search backend, interchangeable with other language's StarDict dictionaries.                                                                                                                    |
+| core/search_sdcv_words.py           | English word search backend, interchangeable with other language’s StarDict dictionaries.                                                                                                                    |
 | core/search_tailwindcss_keywords.py | TailwindCSS keyword search backend.                                                                                                                                                                          |
 | core/search_list.py                 | Asynchronous search framework that can be used to write your own asynchronous search backends.                                                                                                               |
-| langserver                          | Mainly places the configuration of LSP servers, with a json file for each server, defining the server's name, language ID, startup command, and settings options.                                            |
+| langserver                          | Mainly places the configuration of LSP servers, with a json file for each server, defining the server‘s name, language ID, startup command, and settings options.                                            |
 | multiserver                         | Mainly places the configuration of multiple LSP servers.                                                                                                                                                     |
 | resources                           | English dictionary data, mainly for serving Chinese users.                                                                                                                                                   |
 

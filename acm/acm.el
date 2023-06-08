@@ -192,6 +192,11 @@
   :type 'list
   :group 'acm)
 
+(defcustom acm-enable-preview nil
+  "Enable tab-and-go preview."
+  :type 'boolean
+  :group 'acm)
+
 (cl-defmacro acm-run-idle-func (timer idle func)
   `(unless ,timer
      (setq ,timer
@@ -221,6 +226,16 @@
     (define-key map "\M-k" #'acm-doc-scroll-down)
     (define-key map "\M-l" #'acm-hide)
     (define-key map "\C-g" #'acm-hide)
+    (define-key map "1" #'acm-insert-number-or-complete-candiate)
+    (define-key map "2" #'acm-insert-number-or-complete-candiate)
+    (define-key map "3" #'acm-insert-number-or-complete-candiate)
+    (define-key map "4" #'acm-insert-number-or-complete-candiate)
+    (define-key map "5" #'acm-insert-number-or-complete-candiate)
+    (define-key map "6" #'acm-insert-number-or-complete-candiate)
+    (define-key map "7" #'acm-insert-number-or-complete-candiate)
+    (define-key map "8" #'acm-insert-number-or-complete-candiate)
+    (define-key map "9" #'acm-insert-number-or-complete-candiate)
+    (define-key map "0" #'acm-insert-number-or-complete-candiate)
     map)
   "Keymap used when popup is shown.")
 
@@ -245,6 +260,8 @@
 (defvar acm-doc-frame nil)
 (defvar acm-doc-frame-hide-p nil)
 (defvar acm-doc-buffer " *acm-doc-buffer*")
+
+(defvar acm-preview-overlay nil)
 
 (defface acm-deprecated-face
   '((t :inherit shadow :strike-through t))
@@ -470,7 +487,7 @@ Only calculate template candidate when type last character."
 The key of candidate will change between two LSP results."
   (format "%s###%s" (plist-get candidate :label) (plist-get candidate :backend)))
 
-(defun acm-update ()
+(defun acm-update (&optional candidate)
   ;; Init quick mode map.
   (acm-quick-access-init)
 
@@ -480,7 +497,7 @@ The key of candidate will change between two LSP results."
          (keyword (acm-get-input-prefix))
          (previous-select-candidate-index (+ acm-menu-offset acm-menu-index))
          (previous-select-candidate (acm-menu-index-info (acm-menu-current-candidate)))
-         (candidates (acm-update-candidates))
+         (candidates (or candidate (acm-update-candidates)))
          (menu-candidates (cl-subseq candidates 0 (min (length candidates) acm-menu-length)))
          (current-select-candidate-index (cl-position previous-select-candidate (mapcar 'acm-menu-index-info menu-candidates) :test 'equal))
          (bounds (acm-get-input-prefix-bound)))
@@ -538,7 +555,8 @@ The key of candidate will change between two LSP results."
         ;; `posn-at-point' will failed in CI, add checker make sure CI can pass.
         ;; CI don't need popup completion menu.
         (when (posn-at-point acm-menu-frame-popup-point)
-          (setq acm-menu-frame-popup-position (acm-frame-get-popup-position acm-menu-frame-popup-point))
+          (setq acm-menu-frame-popup-position
+                (acm-frame-get-popup-position acm-menu-frame-popup-point))
 
           ;; We need delete frame first when user switch to different frame.
           (when (and (frame-live-p acm-menu-frame)
@@ -581,7 +599,8 @@ The key of candidate will change between two LSP results."
 
 (defun acm-hide ()
   (interactive)
-  (let* ((candidate-info (acm-menu-current-candidate))
+  (let* ((completion-menu-is-show-p (acm-frame-visible-p acm-menu-frame))
+         (candidate-info (acm-menu-current-candidate))
          (backend (plist-get candidate-info :backend)))
     ;; Turn off `acm-mode'.
     (acm-mode -1)
@@ -598,13 +617,22 @@ The key of candidate will change between two LSP results."
     ;; Clean `acm-menu-max-length-cache'.
     (setq acm-menu-max-length-cache 0)
 
+    (when acm-preview-overlay
+      (if (not (eq this-command 'acm-hide))
+          ;; if `acm-hide' is called as command, not insert
+          (acm-complete t)
+        (delete-overlay acm-preview-overlay)
+        (setq acm-preview-overlay nil)))
+
     ;; Remove hook of `acm--pre-command'.
     (remove-hook 'pre-command-hook #'acm--pre-command 'local)
 
-    ;; Clean backend cache.
-    (when-let* ((backend-clean (intern-soft (format "acm-backend-%s-clean" backend)))
-                (fp (fboundp backend-clean)))
-      (funcall backend-clean))))
+    ;; If completion menu is show, clean backend cache.
+    ;; Don't clean backend cache if menu is hide, to make sure completion menu have candidate when call command `lsp-bridge-popup-complete-menu'.
+    (when completion-menu-is-show-p
+      (when-let* ((backend-clean (intern-soft (format "acm-backend-%s-clean" backend)))
+                  (fp (fboundp backend-clean)))
+        (funcall backend-clean)))))
 
 (defun acm-running-in-wayland-native ()
   (and (eq window-system 'pgtk)
@@ -632,19 +660,56 @@ The key of candidate will change between two LSP results."
   (unless (acm-match-symbol-p acm-continue-commands this-command)
     (acm-hide)))
 
-(defun acm-complete ()
+(defun acm-complete (&optional not-hide)
   (interactive)
   (let* ((candidate-info (acm-menu-current-candidate))
          (bound-start acm-menu-frame-popup-point)
          (backend (plist-get candidate-info :backend))
          (candidate-expand (intern-soft (format "acm-backend-%s-candidate-expand" backend))))
+
     (if (fboundp candidate-expand)
         (funcall candidate-expand candidate-info bound-start)
       (delete-region bound-start (point))
       (insert (plist-get candidate-info :label))))
 
+  (when (overlayp acm-preview-overlay)
+    (delete-overlay acm-preview-overlay))
+  (setq acm-preview-overlay nil)
+
   ;; Hide menu and doc frame after complete candidate.
-  (acm-hide))
+  (unless not-hide
+    (acm-hide)))
+
+(defun acm-preview-create-overlay (beg end display)
+  (let ((ov (make-overlay beg end nil)))
+    (overlay-put ov 'priority 1000)
+    (overlay-put ov 'window (selected-window))
+    (when (stringp display)
+      (overlay-put ov 'display display))
+    ov))
+
+(defun acm-preview-current ()
+  "Show current candidate as overlay given BEG and END."
+  (let* ((candidate-info (acm-menu-current-candidate))
+         (beg acm-menu-frame-popup-point)
+         (cand (plist-get candidate-info :label))
+         (end (+ beg (length cand)))
+         (backend (plist-get candidate-info :backend))
+         (candidate-expand (intern-soft (format "acm-backend-%s-candidate-expand" backend))))
+    (when acm-preview-overlay (delete-overlay acm-preview-overlay))
+    (if (and (fboundp candidate-expand)
+             ;; check if candidate-expand support preview.
+             (string-match " PREVIEW" (documentation candidate-expand t)))
+        (save-excursion
+          (setq acm-preview-overlay (funcall candidate-expand candidate-info beg t)))
+      (setq acm-preview-overlay (acm-preview-create-overlay beg (point) cand)))
+    ;; adjust pos of menu frame.
+    (when-let ((popup-pos (acm-frame-get-popup-position
+                           acm-menu-frame-popup-point
+                           (1- (length (split-string (overlay-get acm-preview-overlay 'display) "\n")))))
+               ((not (eq (cdr popup-pos) (cdr acm-menu-frame-popup-position)))))
+      (setcdr acm-menu-frame-popup-position (cdr popup-pos))
+      (acm-menu-adjust-pos))))
 
 (defun acm-complete-or-expand-yas-snippet ()
   "Do complete or expand yasnippet, you need binding this funtion to `<tab>' in `yas-keymap'."
@@ -787,7 +852,7 @@ The key of candidate will change between two LSP results."
               (visual-line-mode 1))
 
             ;; Only render markdown styling when idle 200ms, because markdown render is expensive.
-            (when (string-equal backend "lsp")
+            (when (member backend '("lsp" "codeium"))
               (acm-cancel-timer acm-markdown-render-timer)
               (cl-case acm-enable-doc-markdown-render
                 (async (setq acm-markdown-render-timer
@@ -910,8 +975,10 @@ The key of candidate will change between two LSP results."
      (when (or (not (equal menu-old-index acm-menu-index))
                (not (equal menu-old-offset acm-menu-offset)))
        (acm-menu-update-candidates)
-       (acm-menu-render menu-old-cache)
-       )))
+       (acm-menu-render menu-old-cache))
+     (when acm-enable-preview
+       (acm-preview-current))
+     ))
 
 (defun acm-char-before ()
   (let ((prev-char (char-before)))
@@ -1003,8 +1070,6 @@ The key of candidate will change between two LSP results."
 
 (defvar acm-markdown-render-timer nil)
 (defvar acm-markdown-render-doc nil)
-(defvar acm-markdown-render-background nil)
-(defvar acm-markdown-render-height nil)
 
 (defvar acm-markdown-render-prettify-symbols-alist
   (nconc
@@ -1023,22 +1088,27 @@ The key of candidate will change between two LSP results."
 (defun acm-markdown-render-content ()
   (when (fboundp 'gfm-view-mode)
     (let ((inhibit-message t))
-      (setq-local markdown-fontify-code-blocks-natively t)
-      (setq acm-markdown-render-background (face-background 'markdown-code-face))
-      (setq acm-markdown-render-height (face-attribute 'markdown-code-face :height))
-      ;; NOTE:
-      ;; Please DON'T use `face-remap-add-relative' here, it's WRONG.
-      ;;
-      (set-face-background 'markdown-code-face (acm-frame-background-color))
-      (set-face-attribute 'markdown-code-face nil :height acm-markdown-render-font-height)
-      (gfm-view-mode)))
+      ;; Enable `gfm-view-mode' first, otherwise `gfm-view-mode' will change attribute of face `markdown-code-face'.
+      (gfm-view-mode)
+
+      ;; Then remapping background and height of `markdown-code-face' to same as acm doc buffer.
+      (face-remap-add-relative 'markdown-code-face :background (face-attribute 'default :background acm-menu-frame))
+      (face-remap-add-relative 'markdown-code-face :height acm-markdown-render-font-height)))
+
   (read-only-mode 0)
+
+  ;; Enable prettify-symbols.
   (setq prettify-symbols-alist acm-markdown-render-prettify-symbols-alist)
   (setq prettify-symbols-compose-predicate (lambda (_start _end _match) t))
   (prettify-symbols-mode 1)
+
+  ;; Disable line number.
   (display-line-numbers-mode -1)
+
+  ;; Syntax Highlight.
   (font-lock-ensure)
 
+  ;; Disable mode line.
   (setq-local mode-line-format nil))
 
 (defun acm-doc-markdown-render-content (doc)
@@ -1048,10 +1118,16 @@ The key of candidate will change between two LSP results."
       (read-only-mode -1)
       (acm-markdown-render-content))
 
-    (setq acm-markdown-render-doc doc)))
+    (setq acm-markdown-render-doc doc)
+
+    ;; We need `acm-doc-frame-adjust' again if `acm-enable-doc-markdown-render' is `async'.
+    ;; otherwise, `gfm-view-mode' will remove ``` line.
+    (cl-case acm-enable-doc-markdown-render
+      (async (acm-doc-frame-adjust))
+      )))
 
 (defun acm-in-comment-p (&optional state)
-  (if (and (featurep 'treesit) (treesit-parser-list))
+  (if (and (featurep 'treesit) (treesit-available-p) (treesit-parser-list))
       ;; Avoid use `acm-current-parse-state' when treesit is enable.
       ;; `beginning-of-defun' is very expensive function will slow down completion menu.
       ;; We use `treesit-node-type' directly if treesit is enable.
@@ -1066,7 +1142,7 @@ The key of candidate will change between two LSP results."
           )))))
 
 (defun acm-in-string-p (&optional state)
-  (if (and (featurep 'treesit) (treesit-parser-list))
+  (if (and (featurep 'treesit) (treesit-available-p) (treesit-parser-list))
       ;; Avoid use `acm-current-parse-state' when treesit is enable.
       ;; `beginning-of-defun' is very expensive function will slow down completion menu.
       ;; We use `treesit-node-type' directly if treesit is enable.

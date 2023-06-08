@@ -27,6 +27,9 @@ import traceback
 from core.utils import *
 
 class RemoteFileClient(threading.Thread):
+
+    remote_password_dict = {}
+
     def __init__(self, ssh_host, ssh_user, ssh_port, server_port, callback):
         threading.Thread.__init__(self)
 
@@ -36,6 +39,7 @@ class RemoteFileClient(threading.Thread):
         self.ssh_port = ssh_port
         self.server_port = server_port
         self.callback = callback
+
 
         # Build SSH channel between local client and remote server.
         self.ssh = self.connect_ssh()
@@ -52,7 +56,23 @@ class RemoteFileClient(threading.Thread):
         import paramiko
         ssh = paramiko.SSHClient()
         ssh.set_missing_host_key_policy(paramiko.AutoAddPolicy())
-        ssh.connect(self.ssh_host, port=self.ssh_port, username=self.ssh_user, key_filename=self.ssh_pub_key())
+
+        try:
+            # Login server with ssh public key.
+            pub_key = self.ssh_pub_key()
+            ssh.connect(self.ssh_host, port=self.ssh_port, username=self.ssh_user, key_filename=pub_key)
+        except:
+            # Try login server with password if public key is not available.
+            password = RemoteFileClient.remote_password_dict[self.ssh_host] if self.ssh_host in RemoteFileClient.remote_password_dict else get_ssh_password(self.ssh_host)
+            try:
+                ssh.connect(self.ssh_host, port=self.ssh_port, username=self.ssh_user, password=password)
+
+                # Only remeber server's login password after login server successfully.
+                # Password only record in memory for session login, not save in file.
+                RemoteFileClient.remote_password_dict[self.ssh_host] = password
+            except:
+                pass
+
         return ssh
 
     def send_message(self, message):
@@ -123,7 +143,7 @@ class RemoteFileServer:
         client_socket.close()
 
     def handle_message(self, message, client_socket):
-        data = json.loads(message)
+        data = parse_json_content(message)
         command = data["command"]
 
         if command == "open_file":
@@ -172,20 +192,7 @@ class RemoteFileServer:
             with open(path) as f:
                 self.file_dict[path] = f.read()
 
-        content = self.file_dict[path]
-
-        # Synchronously file content in memory for edit big file non-block.
-        start_line = data["args"][0]['line']
-        start_char = data['args'][0]['character']
-        end_line = data['args'][1]['line']
-        end_char = data['args'][1]['character']
-
-        start_pos = get_position(content, start_line, start_char)
-        end_pos = get_position(content, end_line, end_char)
-
-        content = content[:start_pos] + data['args'][3] + content[end_pos:]
-
-        self.file_dict[path] = content
+        self.file_dict[path] = rebuild_content_from_diff(self.file_dict[path], data["args"][0], data["args"][1], data["args"][3])
 
     def handle_save_file(self, data, client_socket):
         path = data["path"]

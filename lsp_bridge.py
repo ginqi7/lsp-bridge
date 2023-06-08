@@ -114,14 +114,14 @@ class LspBridge:
         # Build EPC interfaces.
         handler_subclasses = list(map(lambda cls: cls.name, Handler.__subclasses__()))
         for name in ["change_file", "update_file",  "save_file",
-                     "change_cursor",
+                     "try_completion", "change_cursor",
                      "ignore_diagnostic", "list_diagnostics",
                      "try_code_action",
                      "workspace_symbol"] + handler_subclasses:
             self.build_file_action_function(name)
 
         search_backend_export_functions = {
-            "search_file_words": ["index_files", "change_file", "load_file", "close_file", "rebuild_cache", "search"],
+            "search_file_words": ["index_files", "change_buffer", "load_file", "close_file", "search"],
             "search_sdcv_words": ["search"],
             "search_list": ["search", "update"],
             "search_tailwind_keywords": ["search"],
@@ -254,7 +254,7 @@ class LspBridge:
 
     @threaded
     def handle_remote_file_message(self, message):
-        data = json.loads(message)
+        data = parse_json_content(message)
         command = data["command"]
 
         if command == "open_file":
@@ -268,7 +268,7 @@ class LspBridge:
 
     @threaded
     def handle_lsp_message(self, message):
-        data = json.loads(message)
+        data = parse_json_content(message)
         if data["command"] == "eval-in-emacs":
             # Execute emacs command from remote server.
             eval_sexp_in_emacs(data["sexp"])
@@ -368,7 +368,7 @@ class LspBridge:
             # Receive elisp RPC call from remote server.
             log_time(f"Receive remote message: {message}")
 
-            data = json.loads(message)
+            data = parse_json_content(message)
             host = data["host"]
 
             # Read elisp code from local Emacs, and sendback to remote server.
@@ -422,7 +422,7 @@ class LspBridge:
             if not message:
                 break
 
-            message = json.loads(message)
+            message = parse_json_content(message)
 
             if message["command"] == "lsp_request":
                 # Call LSP request.
@@ -521,14 +521,16 @@ class LspBridge:
                     single_lang_server = get_emacs_func_result("get-single-lang-server", project_path, filepath)
 
                     if single_lang_server:
-                        self.load_single_lang_server(project_path, filepath)
+                        return self.load_single_lang_server(project_path, filepath)
                     else:
                         self.turn_off(
                             filepath,
-                            "ERROR: can't find all command of multi-server for {}, haven't found match single-server, disable lsp-bridge-mode.".format(filepath))
+                            "ERROR: can't find all command of multi-server for {}, haven't found match single-server".format(filepath))
+
+                        return False
         else:
             # Try to load single language server.
-            self.load_single_lang_server(project_path, filepath)
+            return self.load_single_lang_server(project_path, filepath)
 
         return True
 
@@ -555,7 +557,7 @@ class LspBridge:
         single_lang_server = get_emacs_func_result("get-single-lang-server", project_path, filepath)
 
         if not single_lang_server:
-            self.turn_off(filepath, "ERROR: can't find the corresponding server for {}, disable lsp-bridge-mode.".format(filepath))
+            self.turn_off(filepath, "ERROR: can't find the corresponding server for {}".format(filepath))
 
             return False
 
@@ -579,9 +581,12 @@ class LspBridge:
         else:
             return False
 
+        return True
+
     def turn_off(self, filepath, message):
-        message_emacs(message)
-        eval_in_emacs("lsp-bridge--turn-off", filepath, get_lsp_file_host())
+        if os.path.splitext(filepath)[1] != ".txt":
+            message_emacs(message + ", disable lsp-bridge-mode.")
+            eval_in_emacs("lsp-bridge--turn-off", filepath, get_lsp_file_host())
 
     def check_lang_server_command(self, lang_server_info, filepath, turn_off_on_error=True):
         if len(lang_server_info["command"]) > 0:
@@ -598,7 +603,7 @@ class LspBridge:
                     server_command, lang_server_info["name"], filepath)
 
                 if turn_off_on_error:
-                    self.turn_off(filepath, error_message + ", disable lsp-bridge-mode.")
+                    self.turn_off(filepath, error_message)
                 else:
                     message_emacs(error_message)
 
@@ -607,7 +612,7 @@ class LspBridge:
             error_message = "Error: {}'s command argument is empty".format(filepath)
 
             if turn_off_on_error:
-                self.turn_off(filepath, error_message + ", disable lsp-bridge-mode.")
+                self.turn_off(filepath, error_message)
             else:
                 message_emacs(error_message)
 
@@ -706,8 +711,8 @@ class LspBridge:
     def tabnine_complete(self, before, after, filename, region_includes_beginning, region_includes_end, max_num_results):
         self.tabnine.complete(before, after, filename, region_includes_beginning, region_includes_end, max_num_results)
 
-    def codeium_complete(self, cursor_offset, editor_language, tab_size, text, max_num_results, insert_spaces, language):
-        self.codeium.complete(cursor_offset, editor_language, tab_size, text, max_num_results, insert_spaces, language)
+    def codeium_complete(self, cursor_offset, editor_language, tab_size, text, insert_spaces, prefix, language):
+        self.codeium.complete(cursor_offset, editor_language, tab_size, text, insert_spaces, prefix, language)
 
     def codeium_completion_accept(self, id):
         self.codeium.accept(id)

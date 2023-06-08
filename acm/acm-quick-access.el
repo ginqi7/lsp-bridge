@@ -17,6 +17,13 @@
                  (const :tag "Control key" control))
   :group 'acm-quick-access)
 
+(defcustom acm-quick-access-use-number-select nil
+  "Use the number keys to select candidate words, disabled by default.
+
+Enable this option will cause interfering digital insertion sometimes."
+  :type 'boolean
+  :group 'acm-quick-access)
+
 (defvar acm-quick-access-init-p nil)
 
 (defun acm-quick-access-init ()
@@ -38,12 +45,11 @@
     "M"))
 
 (defun acm-keymap--bind-quick-access (keymap)
-  (when acm-enable-quick-access
-    (let ((modifier (acm-keymap--quick-access-modifier)))
-      (dolist (key acm-quick-access-keys)
-        (let ((key-seq (acm-keymap--kbd-quick-access modifier key)))
-          (unless (lookup-key keymap key-seq)
-            (define-key keymap key-seq #'acm-complete-quick-access)))))))
+  (let ((modifier (acm-keymap--quick-access-modifier)))
+    (dolist (key acm-quick-access-keys)
+      (let ((key-seq (acm-keymap--kbd-quick-access modifier key)))
+        (unless (lookup-key keymap key-seq)
+          (define-key keymap key-seq #'acm-complete-quick-access))))))
 
 (defun acm-keymap--kbd-quick-access (modifier key)
   (kbd (format "%s-%s" modifier key)))
@@ -60,6 +66,35 @@ See `acm-quick-access-keys' for more details."
   (when row
     (setq-local acm-menu-index row)
     (acm-complete)))
+
+(defun acm-insert-number-or-complete-candiate ()
+  (interactive)
+  (if acm-quick-access-use-number-select
+      (let ((current-char (key-description (this-command-keys-vector)))
+            complete-index)
+        ;; Only complete candidate when match below rules:
+        ;;
+        ;; 1. User type number character
+        ;; 2. User type number is equal or bigger than candidate length
+        ;; 3. First character of rest candidate is not same with user type number
+        ;; 4. Character before cursor is not number and equal-sign
+        (when (string-match-p "[0-9]" current-char)
+          (let* ((current-number (string-to-number current-char)))
+            (when (>= (length acm-candidates) current-number)
+              (let* (;; Decrease index if user type 1~9, adjust index to 9 if user type 0.
+                     (index (if (equal current-number 0) 9 (1- current-number)))
+                     (candiate (nth (+ acm-menu-offset index) acm-candidates))
+                     (candidate-label (or (plist-get candiate :display-label) ""))
+                     (prefix (acm-get-input-prefix))
+                     (rest (cadr (split-string candidate-label prefix))))
+                (unless (or (string-prefix-p current-char rest)
+                            (string-match-p "[0-9=]" (string (char-before))))
+                  (setq complete-index index))))))
+
+        (if complete-index
+            (acm-complete-quick-access complete-index)
+          (insert current-char)))
+    (self-insert-command 1)))
 
 (provide 'acm-quick-access)
 
