@@ -209,7 +209,8 @@ Please read https://microsoft.github.io/language-server-protocol/specifications/
       (setq-local mode-line-format nil)
       (setq-local truncate-lines t))
 
-    (acm-frame-set-frame-size lsp-bridge-call-hierarchy--frame (max width call-frame-width)
+    (acm-frame-set-frame-size lsp-bridge-call-hierarchy--frame
+                              (max width call-frame-width)
                               (+ height (length lsp-bridge-call-hierarchy--popup-response)))
     (acm-frame-adjust-frame-pos lsp-bridge-call-hierarchy--frame)
     (select-frame-set-input-focus lsp-bridge-call-hierarchy--frame)
@@ -379,7 +380,8 @@ Please read https://microsoft.github.io/language-server-protocol/specifications/
      (action
       (lsp-bridge-code-action--fix-do action))
      ;; Popup menu if `lsp-bridge-code-action-enable-popup-menu' option is non-nil.
-     ((and lsp-bridge-code-action-enable-popup-menu (posframe-workable-p))
+     ((and lsp-bridge-code-action-enable-popup-menu
+           (acm-frame-can-display-p))
       (lsp-bridge-code-action-popup-menu menu-items default-action))
      (t
       ;; Choose action from minibuffer.
