@@ -938,7 +938,7 @@ So we build this macro to restore postion after code format."
                                 :commands (cons lsp-bridge-internal-process-prog lsp-bridge-internal-process-args)
                                 :title (mapconcat 'identity (cons lsp-bridge-internal-process-prog lsp-bridge-internal-process-args) " ")
                                 :port lsp-bridge-epc-port
-                                :connection (lsp-bridge-epc-connect "localhost" lsp-bridge-epc-port)
+                                :connection (lsp-bridge-epc-connect "127.0.0.1" lsp-bridge-epc-port)
                                 ))
   (lsp-bridge-epc-init-epc-layer lsp-bridge-epc-process)
   (setq lsp-bridge-is-starting nil)
@@ -1249,7 +1249,8 @@ So we build this macro to restore postion after code format."
     (when (or (lsp-bridge-has-lsp-server-p)
               (lsp-bridge-is-remote-file))
       (setq-local lsp-bridge--before-change-begin-pos (lsp-bridge--point-position begin))
-      (setq-local lsp-bridge--before-change-end-pos (lsp-bridge--point-position end)))))
+      (setq-local lsp-bridge--before-change-end-pos (lsp-bridge--point-position end))
+      )))
 
 (defun lsp-bridge-monitor-post-self-insert ()
   ;; Make sure this function be called after `electric-pair-mode'
@@ -1274,43 +1275,59 @@ So we build this macro to restore postion after code format."
         (list (current-buffer) (buffer-chars-modified-tick) (point))))
 
 (defun lsp-bridge-monitor-after-change (begin end length)
-  ;; Use `save-match-data' protect match data, avoid conflict with command call `search-regexp'.
-  (save-match-data
-    (unless lsp-bridge-revert-buffer-flag
-      ;; Record last command to `lsp-bridge-last-change-command'.
-      (setq lsp-bridge-last-change-command (format "%s" this-command))
+  ;; When user do `delete' operation, `length' is bigger than 0,
+  ;; and the string between `begin' and `end' must be empty.
+  ;; if string is not empty, something wrong, we should not send any request to completion backend.
+  (unless (and (> length 0)
+               (> (length (buffer-substring-no-properties begin end)) 0))
+    ;; Use `save-match-data' protect match data, avoid conflict with command call `search-regexp'.
+    (save-match-data
+      (unless lsp-bridge-revert-buffer-flag
+        ;; Record last command to `lsp-bridge-last-change-command'.
+        (setq lsp-bridge-last-change-command (format "%s" this-command))
 
-      ;; Record last change position to avoid popup outdate completions.
-      (setq lsp-bridge-last-change-position (list (current-buffer) (buffer-chars-modified-tick) (point)))
+        ;; Record last change position to avoid popup outdate completions.
+        (setq lsp-bridge-last-change-position (list (current-buffer) (buffer-chars-modified-tick) (point)))
 
-      ;; Set `lsp-bridge-last-change-is-delete-command-p'
-      (setq lsp-bridge-last-change-is-delete-command-p (> length 0))
+        ;; Set `lsp-bridge-last-change-is-delete-command-p'
+        (setq lsp-bridge-last-change-is-delete-command-p (> length 0))
 
-      ;; Sync change for org babel if we enable it
-      (lsp-bridge-org-babel-monitor-after-change begin end length)
+        ;; Sync change for org babel if we enable it
+        (lsp-bridge-org-babel-monitor-after-change begin end length)
 
-      ;; Send change_file request to trigger LSP completion.
-      (when (or (lsp-bridge-call-file-api-p)
-                (lsp-bridge-is-remote-file))
-        (lsp-bridge-call-file-api "change_file"
-                                  lsp-bridge--before-change-begin-pos
-                                  lsp-bridge--before-change-end-pos
-                                  length
-                                  (buffer-substring-no-properties begin end)
-                                  (lsp-bridge--position)
-                                  (acm-char-before)
-                                  (buffer-name)
-                                  (acm-get-input-prefix)))
+        ;; Send change_file request to trigger LSP completion.
+        (when (or (lsp-bridge-call-file-api-p)
+                  (lsp-bridge-is-remote-file))
+
+          ;; Uncomment below code to debug `change_file' protocol.
+          ;; (message (format "change_file: '%s' '%s' '%s' '%s' '%s' '%s'"
+          ;;                  length
+          ;;                  lsp-bridge--before-change-begin-pos
+          ;;                  lsp-bridge--before-change-end-pos
+          ;;                  (lsp-bridge--position)
+          ;;                  (buffer-substring-no-properties begin end)
+          ;;                  (buffer-substring-no-properties (line-beginning-position) (point))
+          ;;                  ))
+
+          (lsp-bridge-call-file-api "change_file"
+                                    lsp-bridge--before-change-begin-pos
+                                    lsp-bridge--before-change-end-pos
+                                    length
+                                    (buffer-substring-no-properties begin end)
+                                    (lsp-bridge--position)
+                                    (acm-char-before)
+                                    (buffer-name)
+                                    (acm-get-input-prefix)))
 
 
-      ;; Complete other non-LSP backends.
-      (lsp-bridge-complete-other-backends)
+        ;; Complete other non-LSP backends.
+        (lsp-bridge-complete-other-backends)
 
-      ;; Update search words backend.
-      (lsp-bridge-search-words-update
-       lsp-bridge--before-change-begin-pos
-       lsp-bridge--before-change-end-pos
-       (buffer-substring-no-properties begin end)))))
+        ;; Update search words backend.
+        (lsp-bridge-search-words-update
+         lsp-bridge--before-change-begin-pos
+         lsp-bridge--before-change-end-pos
+         (buffer-substring-no-properties begin end))))))
 
 (defun lsp-bridge-complete-other-backends ()
   (let ((this-command-string (format "%s" this-command)))
@@ -1647,15 +1664,20 @@ So we build this macro to restore postion after code format."
       (apply #'scroll-down-command arg))))
 
 (defun lsp-bridge-popup-documentation--show (value)
-  (with-current-buffer (get-buffer-create lsp-bridge-popup-documentation-buffer)
-    (read-only-mode -1)
-    (erase-buffer)
-    (insert value)
-    (acm-markdown-render-content))
+  (let ((emacs-frame (or acm-frame--emacs-frame (selected-frame))))
+    (with-current-buffer (get-buffer-create lsp-bridge-popup-documentation-buffer)
+      (read-only-mode -1)
+      (erase-buffer)
+      (insert value)
+      (setq-local truncate-lines nil)
+      (acm-markdown-render-content))
 
-  (acm-frame-new lsp-bridge-popup-documentation-frame
-                 lsp-bridge-popup-documentation-buffer
-                 "lsp bridge popup documentation frame"))
+    (acm-frame-new lsp-bridge-popup-documentation-frame
+                   lsp-bridge-popup-documentation-buffer
+                   "lsp bridge popup documentation frame"
+                   (/ (frame-width emacs-frame) 2)
+                   (/ (frame-height emacs-frame) 2)
+                   )))
 
 (defun lsp-bridge-hide-doc-tooltip ()
   (acm-frame-hide-frame lsp-bridge-popup-documentation-frame))
@@ -2051,18 +2073,27 @@ SymbolKind (defined in the LSP)."
     (message "Turn on SDCV helper."))
   (setq-local acm-enable-search-sdcv-words (not acm-enable-search-sdcv-words)))
 
+(defun lsp-bridge--not-acm-doc-markdown-buffer ()
+  "`markdown-code-fontification:*' buffer will create when we render markdown code in acm doc buffer.
+
+We need exclude `markdown-code-fontification:*' buffer in `lsp-bridge-monitor-before-change' and `lsp-bridge-monitor-after-change'."
+  (not (string-prefix-p " markdown-code-fontification:" (buffer-name (current-buffer)))))
+
+(defun lsp-bridge--not-mind-wave-chat-buffer ()
+  "Not mind-wave's `*.chat' buffer."
+  (or
+   (not (buffer-file-name))
+   (not (string-equal (file-name-extension (buffer-file-name)) "chat"))))
+
 ;;;###autoload
 (defun global-lsp-bridge-mode ()
   (interactive)
 
   (dolist (hook lsp-bridge-default-mode-hooks)
     (add-hook hook (lambda ()
-                     ;; Except `mind-wave-chat-mode'.
-                     (when (or
-                            (not (buffer-file-name))
-                            (not (string-equal (file-name-extension (buffer-file-name)) "chat")))
-                       (lsp-bridge-mode 1))
-                     ))))
+                     (when (and (lsp-bridge--not-mind-wave-chat-buffer)
+                                (lsp-bridge--not-acm-doc-markdown-buffer))
+                       (lsp-bridge-mode 1))))))
 
 (with-eval-after-load 'evil
   (evil-add-command-properties #'lsp-bridge-find-def :jump t)
@@ -2070,9 +2101,14 @@ SymbolKind (defined in the LSP)."
   (evil-add-command-properties #'lsp-bridge-find-impl :jump t))
 
 (defun lsp-bridge--rename-file-advisor (orig-fun &optional arg &rest args)
-  (when (and lsp-bridge-mode
-             (boundp 'acm-backend-lsp-filepath))
-    (let ((new-name (expand-file-name (nth 0 args))))
+  (let* ((current-file-name (buffer-file-name))
+         (current-file-name (and current-file-name
+                                 (expand-file-name current-file-name)))
+         (new-name (expand-file-name (nth 0 args))))
+    (when (and lsp-bridge-mode
+               (boundp 'acm-backend-lsp-filepath)
+               current-file-name
+               (string-equal current-file-name new-name))
       (lsp-bridge-call-file-api "rename_file" new-name)
       (if (lsp-bridge-is-remote-file)
           (lsp-bridge-remote-send-func-request "close_file" (list acm-backend-lsp-filepath))
