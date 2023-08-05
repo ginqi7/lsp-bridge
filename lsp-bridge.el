@@ -88,6 +88,7 @@
 (require 'lsp-bridge-epc)
 (require 'lsp-bridge-ref)
 (require 'lsp-bridge-jdtls)
+(require 'lsp-bridge-peek)
 (require 'lsp-bridge-call-hierarchy)
 (require 'lsp-bridge-code-action)
 (require 'lsp-bridge-diagnostic)
@@ -479,6 +480,7 @@ Then LSP-Bridge will start by gdb, please send new issue with `*lsp-bridge*' buf
     rjsx-mode-hook
     tuareg-mode-hook
     latex-mode-hook
+    LaTeX-mode-hook
     Tex-latex-mode-hook
     texmode-hook
     context-mode-hook
@@ -1042,12 +1044,14 @@ So we build this macro to restore postion after code format."
 
 (defun lsp-bridge-completion--record-items (filename
                                             filehost
-                                            candidates position
+                                            candidates
+                                            position
                                             server-name
                                             completion-trigger-characters
                                             server-names)
   (lsp-bridge--with-file-buffer filename filehost
                                 ;; Save completion items.
+                                (setq-local acm-backend-lsp-cache-candidates nil)
                                 (setq-local acm-backend-lsp-completion-position position)
                                 (setq-local acm-backend-lsp-completion-trigger-characters completion-trigger-characters)
                                 (setq-local acm-backend-lsp-server-names server-names)
@@ -1231,6 +1235,8 @@ So we build this macro to restore postion after code format."
 
 (defvar-local lsp-bridge--before-change-begin-pos nil)
 (defvar-local lsp-bridge--before-change-end-pos nil)
+(defvar-local lsp-bridge--before-change-begin-point nil)
+(defvar-local lsp-bridge--before-change-end-point nil)
 
 (defun lsp-bridge-monitor-before-change (begin end)
   ;; Use `save-match-data' protect match data, avoid conflict with command call `search-regexp'.
@@ -1248,6 +1254,9 @@ So we build this macro to restore postion after code format."
     ;; if `lsp-bridge-has-lsp-server-p' or `lsp-bridge-is-remote-file'
     (when (or (lsp-bridge-has-lsp-server-p)
               (lsp-bridge-is-remote-file))
+      (setq-local lsp-bridge--before-change-begin-point begin)
+      (setq-local lsp-bridge--before-change-end-point end)
+      
       (setq-local lsp-bridge--before-change-begin-pos (lsp-bridge--point-position begin))
       (setq-local lsp-bridge--before-change-end-pos (lsp-bridge--point-position end))
       )))
@@ -1275,59 +1284,59 @@ So we build this macro to restore postion after code format."
         (list (current-buffer) (buffer-chars-modified-tick) (point))))
 
 (defun lsp-bridge-monitor-after-change (begin end length)
-  ;; When user do `delete' operation, `length' is bigger than 0,
-  ;; and the string between `begin' and `end' must be empty.
-  ;; if string is not empty, something wrong, we should not send any request to completion backend.
-  (unless (and (> length 0)
-               (> (length (buffer-substring-no-properties begin end)) 0))
+  ;; Nothing change actual if `begin' and `end' equal `lsp-bridge--before-change-begin-point' and `lsp-bridge--before-change-end-point'
+  ;; Then we should not send any request to search backend.
+  (unless (and (equal begin lsp-bridge--before-change-begin-point)
+               (equal end lsp-bridge--before-change-end-point))
     ;; Use `save-match-data' protect match data, avoid conflict with command call `search-regexp'.
     (save-match-data
       (unless lsp-bridge-revert-buffer-flag
-        ;; Record last command to `lsp-bridge-last-change-command'.
-        (setq lsp-bridge-last-change-command (format "%s" this-command))
+        (let ((change-text (buffer-substring-no-properties begin end)))
+          ;; Record last command to `lsp-bridge-last-change-command'.
+          (setq lsp-bridge-last-change-command (format "%s" this-command))
 
-        ;; Record last change position to avoid popup outdate completions.
-        (setq lsp-bridge-last-change-position (list (current-buffer) (buffer-chars-modified-tick) (point)))
+          ;; Record last change position to avoid popup outdate completions.
+          (setq lsp-bridge-last-change-position (list (current-buffer) (buffer-chars-modified-tick) (point)))
 
-        ;; Set `lsp-bridge-last-change-is-delete-command-p'
-        (setq lsp-bridge-last-change-is-delete-command-p (> length 0))
+          ;; Set `lsp-bridge-last-change-is-delete-command-p'
+          (setq lsp-bridge-last-change-is-delete-command-p (> length 0))
 
-        ;; Sync change for org babel if we enable it
-        (lsp-bridge-org-babel-monitor-after-change begin end length)
+          ;; Sync change for org babel if we enable it
+          (lsp-bridge-org-babel-monitor-after-change begin end length)
 
-        ;; Send change_file request to trigger LSP completion.
-        (when (or (lsp-bridge-call-file-api-p)
-                  (lsp-bridge-is-remote-file))
+          ;; Send change_file request to trigger LSP completion.
+          (when (or (lsp-bridge-call-file-api-p)
+                    (lsp-bridge-is-remote-file))
 
-          ;; Uncomment below code to debug `change_file' protocol.
-          ;; (message (format "change_file: '%s' '%s' '%s' '%s' '%s' '%s'"
-          ;;                  length
-          ;;                  lsp-bridge--before-change-begin-pos
-          ;;                  lsp-bridge--before-change-end-pos
-          ;;                  (lsp-bridge--position)
-          ;;                  (buffer-substring-no-properties begin end)
-          ;;                  (buffer-substring-no-properties (line-beginning-position) (point))
-          ;;                  ))
+            ;; Uncomment below code to debug `change_file' protocol.
+            ;; (message (format "change_file: '%s' '%s' '%s' '%s' '%s' '%s'"
+            ;;                  length
+            ;;                  lsp-bridge--before-change-begin-pos
+            ;;                  lsp-bridge--before-change-end-pos
+            ;;                  (lsp-bridge--position)
+            ;;                  change-text
+            ;;                  (buffer-substring-no-properties (line-beginning-position) (point))
+            ;;                  ))
 
-          (lsp-bridge-call-file-api "change_file"
-                                    lsp-bridge--before-change-begin-pos
-                                    lsp-bridge--before-change-end-pos
-                                    length
-                                    (buffer-substring-no-properties begin end)
-                                    (lsp-bridge--position)
-                                    (acm-char-before)
-                                    (buffer-name)
-                                    (acm-get-input-prefix)))
+            (lsp-bridge-call-file-api "change_file"
+                                      lsp-bridge--before-change-begin-pos
+                                      lsp-bridge--before-change-end-pos
+                                      length
+                                      change-text
+                                      (lsp-bridge--position)
+                                      (acm-char-before)
+                                      (buffer-name)
+                                      (acm-get-input-prefix)))
 
 
-        ;; Complete other non-LSP backends.
-        (lsp-bridge-complete-other-backends)
+          ;; Complete other non-LSP backends.
+          (lsp-bridge-complete-other-backends)
 
-        ;; Update search words backend.
-        (lsp-bridge-search-words-update
-         lsp-bridge--before-change-begin-pos
-         lsp-bridge--before-change-end-pos
-         (buffer-substring-no-properties begin end))))))
+          ;; Update search words backend.
+          (lsp-bridge-search-words-update
+           lsp-bridge--before-change-begin-pos
+           lsp-bridge--before-change-end-pos
+           change-text))))))
 
 (defun lsp-bridge-complete-other-backends ()
   (let ((this-command-string (format "%s" this-command)))
@@ -1337,6 +1346,17 @@ So we build this macro to restore postion after code format."
         ;; TabNine search.
         (when acm-enable-tabnine
           (lsp-bridge-tabnine-complete))
+
+        ;; Copilot search.
+        (when (and acm-enable-copilot
+                   ;; Copilot backend not support remote file now, disable it temporary.
+                   (not (lsp-bridge-is-remote-file))
+                   ;; Don't enable copilot on Markdown mode, Org mode, ielm and minibuffer, very disruptive to writing.
+                   (not (or (derived-mode-p 'markdown-mode)
+                            (eq major-mode 'org-mode)
+                            (derived-mode-p 'inferior-emacs-lisp-mode)
+                            (minibufferp))))
+          (lsp-bridge-copilot-complete))
 
         ;; Codeium search.
         (when (and acm-enable-codeium
@@ -1348,6 +1368,7 @@ So we build this macro to restore postion after code format."
                             (derived-mode-p 'inferior-emacs-lisp-mode)
                             (minibufferp))))
           (lsp-bridge-codeium-complete))
+
 
         ;; Search sdcv dictionary.
         (when acm-enable-search-sdcv-words
@@ -1419,6 +1440,7 @@ So we build this macro to restore postion after code format."
 
 (defun lsp-bridge-elisp-symbols-record (candidates)
   (setq-local acm-backend-elisp-items candidates)
+  (setq-local acm-backend-elisp-cache-candiates nil)
   (lsp-bridge-try-completion))
 
 (defun lsp-bridge-search-words-index-files ()
@@ -1541,6 +1563,12 @@ So we build this macro to restore postion after code format."
   (lsp-bridge-call-file-api "find_references" (lsp-bridge--position)))
 
 (defun lsp-bridge-find-def-fallback (position)
+  (if (not (= (length lsp-bridge-peek-ace-list) 0))
+      (progn
+	    (if (nth 0 lsp-bridge-peek-ace-list)
+	        (kill-buffer (nth 0 lsp-bridge-peek-ace-list)))
+	    (switch-to-buffer (nth 2 lsp-bridge-peek-ace-list))
+	    (goto-char (nth 1 lsp-bridge-peek-ace-list))))
   (message "[LSP-Bridge] No definition found.")
   (if (functionp lsp-bridge-find-def-fallback-function)
       (funcall lsp-bridge-find-def-fallback-function position)))
@@ -1791,7 +1819,7 @@ Default is `bottom-right', you can choose other value: `top-left', `top-right', 
 (define-minor-mode lsp-bridge-mode
   "LSP Bridge mode."
   :keymap lsp-bridge-mode-map
-  :lighter " 橋"
+  :lighter " LSPB"
   :init-value nil
   (if lsp-bridge-mode
       (lsp-bridge--enable)
@@ -1822,7 +1850,7 @@ Default is `bottom-right', you can choose other value: `top-left', `top-right', 
 
     (when (or (lsp-bridge-has-lsp-server-p)
               ;; Init acm backend for org babel, and need elimination org temp buffer.
-              (and lsp-bridge-enable-org-babel 
+              (and lsp-bridge-enable-org-babel
                    (eq major-mode 'org-mode)
                    (not (lsp-bridge-is-org-temp-buffer-p))))
       ;; When user open buffer by `ido-find-file', lsp-bridge will throw `FileNotFoundError' error.
@@ -1832,11 +1860,12 @@ Default is `bottom-right', you can choose other value: `top-left', `top-right', 
                    (not (file-exists-p (buffer-file-name))))
           (save-buffer)))
 
-      (setq-local acm-backend-lsp-completion-trigger-characters nil)
+      (setq-local acm-backend-lsp-cache-candidates nil)
       (setq-local acm-backend-lsp-completion-position nil)
+      (setq-local acm-backend-lsp-completion-trigger-characters nil)
+      (setq-local acm-backend-lsp-server-names nil)
       (setq-local acm-backend-lsp-filepath (lsp-bridge-get-buffer-truename))
       (setq-local acm-backend-lsp-items (make-hash-table :test 'equal))
-      (setq-local acm-backend-lsp-server-names nil)
 
       (when lsp-bridge-enable-signature-help
         (acm-run-idle-func lsp-bridge-signature-help-timer lsp-bridge-signature-help-fetch-idle 'lsp-bridge-signature-help-fetch))
@@ -2017,7 +2046,8 @@ SymbolKind (defined in the LSP)."
           (dolist (change (plist-get info :documentChanges))
             (lsp-bridge-file-apply-edits
              (plist-get (plist-get change :textDocument) :uri)
-             (plist-get change :edits)  temp-buffer)))
+             (plist-get change :edits)
+             temp-buffer)))
          ((plist-get info :changes)
           (let* ((changes (plist-get info :changes))
                  (changes-number (/ (length changes) 2)))
@@ -2191,14 +2221,63 @@ We need exclude `markdown-code-fontification:*' buffer in `lsp-bridge-monitor-be
                              (acm-get-input-prefix)
                              language))))
 
+(defun lsp-bridge-copilot-complete ()
+  (interactive)
+  (setq-local acm-backend-lsp-fetch-completion-item-ticker nil)
+  (let ((all-text (buffer-substring-no-properties (point-min) (point-max)))
+        (relative-path
+         ;; from copilot.el
+         (cond
+          ((not buffer-file-name)
+           "")
+          ((fboundp 'projectile-project-root)
+           (file-relative-name buffer-file-name (projectile-project-root)))
+          ((boundp 'vc-root-dir)
+           (file-relative-name buffer-file-name (vc-root-dir)))
+          (t
+           (file-name-nondirectory buffer-file-name)))))
+    (if (lsp-bridge-is-remote-file)
+        (lsp-bridge-remote-send-func-request "copilot_complete"
+                                             (list
+                                              (lsp-bridge--position)
+                                              (symbol-name major-mode)
+                                              (buffer-file-name)
+                                              relative-path
+                                              tab-width
+                                              all-text
+                                              (not indent-tabs-mode)))
+      (lsp-bridge-call-async "copilot_complete"
+                             (lsp-bridge--position)
+                             (symbol-name major-mode)
+                             (buffer-file-name)
+                             relative-path
+                             tab-width
+                             all-text
+                             (not indent-tabs-mode)))))
+
 (defun lsp-bridge-search-backend--record-items (backend-name items)
   (pcase backend-name
-    ("codeium" (setq-local acm-backend-codeium-items items))
-    ("file-words" (setq-local acm-backend-search-file-words-items items))
-    ("sdcv-words" (setq-local acm-backend-search-sdcv-words-items items))
-    ("tabnine" (setq-local acm-backend-tabnine-items items))
-    ("tailwind-keywords" (setq-local acm-backend-tailwind-items items))
-    ("paths" (setq-local acm-backend-path-items items)))
+    ("codeium"
+     (setq-local acm-backend-codeium-items items)
+     (setq-local acm-backend-codeium-cache-candiates nil))
+    ("copilot"
+     (setq-local acm-backend-copilot-items items)
+     (setq-local acm-backend-copilot-cache-candiates nil))
+    ("file-words"
+     (setq-local acm-backend-search-file-words-items items)
+     (setq-local acm-backend-search-file-words-cache-candiates nil))
+    ("sdcv-words"
+     (setq-local acm-backend-search-sdcv-words-items items)
+     (setq-local acm-backend-search-sdcv-words-cache-candiates nil))
+    ("tabnine"
+     (setq-local acm-backend-tabnine-items items)
+     (setq-local acm-backend-tabnine-cache-candiates nil))
+    ("tailwind"
+     (setq-local acm-backend-tailwind-items items)
+     (setq-local acm-backend-tailwind-cache-candiates nil))
+    ("paths" 
+     (setq-local acm-backend-path-items items)
+     (setq-local acm-backend-path-cache-candiates nil)))
   (lsp-bridge-try-completion))
 
 

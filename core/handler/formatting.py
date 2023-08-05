@@ -17,10 +17,9 @@ class Formatting(Handler):
             "insertFinalNewline": False,
             "trimFinalNewlines": True,
         }
-        
+
         return dict(options=options)
 
     def process_response(self, response) -> None:
         if response and len(response) > 0:
             eval_in_emacs("lsp-bridge-format--update", self.file_action.filepath, response)
-        

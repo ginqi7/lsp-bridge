@@ -32,12 +32,12 @@ Using Python multithreading techniques, lsp-bridge builds a high-speed cache bet
 5. Add the following code to your configuration file ~/.emacs:
 
 ```elisp
-(add-to-list ‘load-path "<path-to-lsp-bridge>")
+(add-to-list 'load-path "<path-to-lsp-bridge>")
 
-(require ’yasnippet)
+(require 'yasnippet)
 (yas-global-mode 1)
 
-(require ‘lsp-bridge)
+(require 'lsp-bridge)
 (global-lsp-bridge-mode)
 ```
 
@@ -54,7 +54,7 @@ It should be noted that lsp-bridge has three scanning modes:
 
 1. When the `.git` directory is detected (determined by the command `git rev-parse --is-inside-work-tree`), lsp-bridge will scan the entire directory to provide completion.
 2. When the `.git` directory is not detected, lsp-bridge only provides single-file completion for the opened file.
-3. Custom `lsp-bridge-get-project-path-by-filepath` function, where the input parameter is the path string of the opened file and the output parameter is the project directory path. Lsp-bridge will provide completion based on the output directory path.
+3. Through the `lsp-bridge-get-project-path-by-filepath` function customized by setq, the input parameter is the path string of the opened file, the output parameter is the project directory path, lsp-bridge will provide completion based on the output directory path.
 
 ## Remote Usage
 
@@ -122,9 +122,21 @@ lsp-bridge first looks for the content of the first *.pub file in the `~/.ssh` d
 - `lsp-bridge-code-action`: Popup code action menu, you can pass special `actin-kind` to fix, `action-kind` can use one of "quickfix", "refactor", "refactor.extract", "refactor.inline", "refactor.rewrite", "source", "source.organizeImports", "source.fixAll"
 - `lsp-bridge-workspace-list-symbols`: List all symbols in workspace and jump to the symbol definition
 - `lsp-bridge-signature-help-fetch`: show signature help in minibuffer manually (move cursor to parameters area will show signature help automatically)
-- `lsp-bridge-popup-complete-menu`: Manually popup the completion menu, you only need this command when turn on option `lsp-bride-complete-manually`
+- `lsp-bridge-popup-complete-menu`: Manually popup the completion menu, you only need this command when turn on option `lsp-bridge-complete-manually`
 - `lsp-bridge-restart-process`: restart lsp-bridge process (only used for development)
 - `lsp-bridge-toggle-sdcv-helper`: Switch dictionary completion assistant
+- `lsp-bridge-peek-abort`: Close peek window (default binding to `C-g`)
+- `lsp-bridge-peek-list-next-line`: Select the next definition or reference (default binding to `M-S-n`)
+- `lsp-bridge-peek-list-prev-line`: Select the previous definition or reference (default binding to `M-S-p`)
+- `lsp-bridge-peek-file-content-next-line`: Scroll down one line in the peek window file content (default binding to `M-n`)
+- `lsp-bridge-peek-file-content-prev-line`: Scroll up one line in the peek window file content (default binding to `M-p`)
+- `lsp-bridge-peek-jump`: Jump to the location of the definition or reference (default binding to `M-l j`)
+- `lsp-bridge-peek-jump-back`: Jump back to the original position (default bound to `M-l b`)
+- `lsp-bridge-peek-through`: View one symbol in the peek window
+- `lsp-bridge-peek-tree-previous-branch`: Select the previous branch at the same level in the browsing history (default binding to `<up>`)
+- `lsp-bridge-peek-tree-next-branch`: Select the next branch at the same level in the browsing history (default binding to `<down>`)
+- `lsp-bridge-peek-tree-previous-node`: Select the previous higher-level node in the browsing history (default binding to `<left>`)
+- `lsp-bridge-peek-tree-next-node`: Select the next lower-level node in the browsing history (default binding to `<right>`)
 
 ## LSP server options
 
@@ -167,13 +179,18 @@ lsp-bridge first looks for the content of the first *.pub file in the `~/.ssh` d
 - `lsp-bridge-user-multiserver-dir`: the dir where user place multiserver configuration file, if the configuration file name in the dir is the same as that in [lsp-bridge/multiserver](https://github.com/manateelazycat/lsp-bridge/tree/master/multiserver) , lsp-bridge will use the configuration file in this dir
 - `lsp-bridge-symbols-enable-which-func`: Using lsp backend for `which-func`, disable by default
 - `lsp-bridge-enable-org-babel`: Use lsp completion in org babel, disable by default, if unable to complete, please make sure the string after begin_src exists in the `org-src-lang-modes` variable
+- `lsp-bridge-peek-file-content-height`: Display how many lines of file content in peek windows
+- `lsp-bridge-peek-list-height`: Select the next option for definition and reference
+- `lsp-bridge-peek-ace-keys`: Keys to press when performing `lsp-bridge-peek-through`
+- `lsp-bridge-peek-ace-cancel-keys`: Keys to exit `lsp-bridge-peek-through`
 - `acm-frame-background-dark-color`: Menu background color in dark theme
 - `acm-frame-background-light-color`: Menu background color in light theme
 - `acm-enable-doc`: Whether the complete menu display the help document
-- `acm-enable-doc-markdown-render`: Richly render Markdown for completion popups, you can choose `’async`, `t` or `nil`. When set to `‘async`, styles are applied asynchronously, choose `t`, styles are applied synchronously and will slow down the completion speed, default is `async`
+- `acm-enable-doc-markdown-render`: Richly render Markdown for completion popups, you can choose `'async`, `t` or `nil`. When set to `'async`, styles are applied asynchronously, choose `t`, styles are applied synchronously and will slow down the completion speed, default is `'async`
 - `acm-enable-icon`: Whether the completion menu displays icons (Many macOS users have reported that emacs-plus28 cannot display icons properly, showing colored squares instead. There are two ways to solve this: install Emacs Mac Port or add the `--with-rsvg` option to the brew command when compiling Emacs yourself)
 - `acm-enable-tabnine`: Enable tabnine support， enable by default， when enable need execute `lsp-bridge-install-tabnine` command to install TabNine, and it can be used. TabNine will consume huge CPUs, causing your entire computer to be slow. If the computer performance is not good, it is not recommended to enable this option
 - `acm-enable-codeium`: Enable Codeium support, when enable need execute `lsp-bridge-install-update-codeium` command to install Codeium, then execute `lsp-bridge-codeium-auth` command to get auth token and execute `lsp-bridge-codeium-input-auth-token` command to get API Key, and it can be used.
+- `acm-enable-copilot`: Enable copilot support, firstly, purchase the Copilot service by https://github.com/features/copilot , when enable need install agent first `npm install -g copilot-node-server`, then execute `lsp-bridge-copilot-login`, lsp-bridge will display User Code in the Minibuffer, copy the User Code to the opened Copilot page to complete the login.
 - `acm-enable-search-file-words`: Whether the complete menu display the word of the file, enable by default
 - `acm-enable-quick-access`: Whether to display an index after the icon, quickly select candidate words using Alt + Number, default is off
 - `acm-quick-access-use-number-select`: Whether to use number keys for quick selection of candidate words, default is off, turning on this option may sometimes interfere with number input or accidentally select candidate words
@@ -209,7 +226,7 @@ If you are writing JavaScript code, you may need to customize multiple server co
 
 1. `lsp-bridge-get-multi-lang-server-by-project`: A user-defined function that takes project-path and file-path as input parameters and returns the multiple server configuration names. You can search for them in the subdirectory [lsp-bridge/multiserver](https://github.com/manateelazycat/lsp-bridge/tree/master/multiserver).
 2. `lsp-bridge-multi-lang-server-extension-list`: Returns multiple server configuration names based on the file extension. For example, when opening a \*.vue file, we will use volar_emmet to simultaneously utilize volar and emmet-ls for completion.
-3. `lsp-bridge-multi-lang-server-mode-list`: Returns the corresponding multiple server configuration names based on Emacs‘s major-mode.
+3. `lsp-bridge-multi-lang-server-mode-list`: Returns the corresponding multiple server configuration names based on Emacs’s major-mode.
 
 For example, we can enable the Deno LSP server for Deno scripts with the following configuration:
 
@@ -269,7 +286,7 @@ If your language supports mixed multi-language servers, it is recommended to che
 | [solargraph](https://github.com/castwide/solargraph)                                               | Ruby                                    |                                                                                                                                                                                                                                                                    |
 | [rust-analyzer](https://github.com/rust-lang/rust-analyzer)                                        | Rust                                    |                                                                                                                                                                                                                                                                    |
 | [elixirLS](https://github.com/elixir-lsp/elixir-ls)                                                | Elixir                                  | Please ensure that the `elixir-ls` release directory is in your system PATH at first                                                                                                                                                                               |
-| [lexical](https://github.com/lexical-lsp/lexical)                                                  | Elixir                                  | Kindly make sure that the `lexical` release directory is included in your system‘s PATH and that `lexical` has been compiled using the same version of Elixir/Erlang as your project.                                                                              |
+| [lexical](https://github.com/lexical-lsp/lexical)                                                  | Elixir                                  | Kindly make sure that the `lexical` release directory is included in your system’s PATH and that `lexical` has been compiled using the same version of Elixir/Erlang as your project.                                                                              |
 | [gopls](https://github.com/golang/tools/tree/master/gopls)                                         | Go                                      | Make sure install [go-mode](https://github.com/dominikh/go-mode.el) and gopls in PATH, please do `ln -s ~/go/bin/gopls ~/.local/bin`, and do `go mod init` first                                                                                                   |
 | [hls](https://github.com/haskell/haskell-language-server)                                          | Haskell                                 |                                                                                                                                                                                                                                                                    |
 | [dart-analysis-server](https://github.com/dart-lang/sdk/tree/master/pkg/analysis_server)           | Dart                                    |                                                                                                                                                                                                                                                                    |
@@ -335,11 +352,12 @@ The following is the directory structure of the lsp-bridge project:
 |:------------------------------------|:-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
 | lsp-bridge.el                       | The Elisp main logic part of lsp-bridge provides custom options and Elisp functions for python sub-processes to call, such as code jumps, renaming, etc.                                                     |
 | lsp-bridge-epc.el                   | The code that communicates with the lsp-bridge python sub-process, which mainly implements Elisp IPC to interface with Python EPC, implementing data serialization, sending, receiving, and deserialization. |
-| lsp-bridge-call-hierarchy.el        | Displays the code‘s call order relationship in a pop-up frame.                                                                                                                                               |
+| lsp-bridge-call-hierarchy.el        | Displays the code’s call order relationship in a pop-up frame.                                                                                                                                              |
 | lsp-bridge-code-action.el           | Code repair related code.                                                                                                                                                                                    |
 | lsp-bridge-diagnostic.el            | Diagnostic information related code.                                                                                                                                                                         |
 | lsp-bridge-ref.el                   | A code reference viewing framework that provides reference viewing, batch renaming, and reference result regular filtering. The core code is forked from color-rg.el.                                        |
 | lsp-bridge-jdtls.el                 | Provides third-party library jump functions for the Java Language.                                                                                                                                           |
+| lsp-bridge-peek.el                  | Use peek windows to view definitions and references                                                                                                                                                          |
 | lsp-bridge-lsp-installer.el         | Installs TabNine and Omnisharp.                                                                                                                                                                              |
 | lsp-bridge.py                       | The Python main logic part of lsp-bridge provides event loops, message scheduling, and state management.                                                                                                     |
 | acm/acm.el                          | An asynchronous completion menu designed specifically for lsp-bridge backend, supporting lsp, elisp, words, TabNine, and other backends.                                                                     |
@@ -351,12 +369,13 @@ The following is the directory structure of the lsp-bridge project:
 | core/hanlder/                       | Implementation of LSP message sending and receiving, where `__init__.py` is the base class.                                                                                                                  |
 | core/tabnine.py                     | The backend searches and completes with TabNine.                                                                                                                                                             |
 | core/codeium.py                     | The backend searches and completes with Codeium.                                                                                                                                                             |
+| core/copilot.py                     | The backend searches and completes with Copilot.                                                                                                                                                             |
 | core/search_file_words.py           | Asynchronous search backend for file words.                                                                                                                                                                  |
 | core/search_paths.py                | Asynchronous search backend for file paths.                                                                                                                                                                  |
-| core/search_sdcv_words.py           | English word search backend, interchangeable with other language’s StarDict dictionaries.                                                                                                                    |
+| core/search_sdcv_words.py           | English word search backend, interchangeable with other language’s StarDict dictionaries.                                                                                                                   |
 | core/search_tailwindcss_keywords.py | TailwindCSS keyword search backend.                                                                                                                                                                          |
 | core/search_list.py                 | Asynchronous search framework that can be used to write your own asynchronous search backends.                                                                                                               |
-| langserver                          | Mainly places the configuration of LSP servers, with a json file for each server, defining the server‘s name, language ID, startup command, and settings options.                                            |
+| langserver                          | Mainly places the configuration of LSP servers, with a json file for each server, defining the server’s name, language ID, startup command, and settings options.                                           |
 | multiserver                         | Mainly places the configuration of multiple LSP servers.                                                                                                                                                     |
 | resources                           | English dictionary data, mainly for serving Chinese users.                                                                                                                                                   |
 
